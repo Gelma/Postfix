@@ -31,29 +31,29 @@ SENDMAIL(1)                                           SENDMAIL(1)
        the <a href="postdrop.1.html"><b>postdrop</b>(1)</a> command, which is expected to execute with
        suitable privileges.
 
-       Specific  command  aliases  are  provided for other common
+       Specific command aliases are  provided  for  other  common
        modes of operation:
 
-       <b>mailq</b>  List the mail queue. Each  entry  shows  the  queue
-              file  ID,  message  size, arrival time, sender, and
+       <b>mailq</b>  List  the  mail  queue.  Each entry shows the queue
+              file ID, message size, arrival  time,  sender,  and
               the recipients that still need to be delivered.  If
-              mail  could not be delivered upon the last attempt,
+              mail could not be delivered upon the last  attempt,
               the reason for failure is shown. This mode of oper-
-              ation  is implemented by connecting to the <a href="showq.8.html"><b>showq</b>(8)</a>
+              ation is implemented by connecting to the  <a href="showq.8.html"><b>showq</b>(8)</a>
               daemon.
 
        <b>newaliases</b>
               Initialize the alias database. If no alias database
               type is specified, the program uses the type speci-
-              fied in the <b>database</b><i>_</i><b>type</b> configuration  parameter;
-              if  no  input  file  is specified, the program pro-
-              cesses   the    file(s)    specified    with    the
-              <b>alias</b><i>_</i><b>database</b>  configuration  parameter. This mode
-              of operation is implemented by running the  <b>postal-</b>
+              fied  in the <b>database</b><i>_</i><b>type</b> configuration parameter;
+              if no input file is  specified,  the  program  pro-
+              cesses    the    file(s)    specified    with   the
+              <b>alias</b><i>_</i><b>database</b> configuration parameter.  This  mode
+              of  operation is implemented by running the <b>postal-</b>
               <b>ias</b>(1) command.
 
-              Note:  it  may  take a minute or so before an alias
-              database update becomes visible.  Use  the  <b>postfix</b>
+              Note: it may take a minute or so  before  an  alias
+              database  update  becomes  visible. Use the <b>postfix</b>
               <b>reload</b> command to eliminate this delay.
 
        These and other features can be selected by specifying the
@@ -76,7 +76,7 @@ SENDMAIL(1)                                           SENDMAIL(1)
        The following options are recognized:
 
        <b>-B</b> <i>body_type</i> (ignored)
-              The message  body  MIME  type.  Currently,  Postfix
+              The  message  body  MIME  type.  Currently, Postfix
               implements <b>just-send-eight</b>.
 
        <b>-C</b> <i>config_file</i> (ignored :-)
@@ -84,47 +84,47 @@ SENDMAIL(1)                                           SENDMAIL(1)
               figuration files are kept in <b>/etc/postfix</b>.
 
        <b>-F</b> <i>full_name</i>
-              Set the sender full name. This is  used  only  with
+              Set  the  sender  full name. This is used only with
               messages that have no <b>From:</b> message header.
 
-       <b>-I</b>     Initialize  alias database. See the <b>newaliases</b> com-
+       <b>-I</b>     Initialize alias database. See the <b>newaliases</b>  com-
               mand above.
 
        <b>-N</b> <i>dsn</i> (ignored)
-              Delivery status  notification  control.  Currently,
+              Delivery  status  notification  control. Currently,
               Postfix does not implement <b>DSN</b>.
 
        <b>-R</b> <i>return_limit</i> (ignored)
-              Limit   the   size   of   bounced   mail.  Use  the
-              <b>bounce</b><i>_</i><b>size</b><i>_</i><b>limit</b> configuration parameter  instead.
+              Limit  the  size   of   bounced   mail.   Use   the
+              <b>bounce</b><i>_</i><b>size</b><i>_</i><b>limit</b>  configuration parameter instead.
 
        <b>-X</b> <i>log_file</i> (ignored)
-              Log  mailer  traffic.  Use  the <b>debug</b><i>_</i><b>peer</b><i>_</i><b>list</b> and
-              <b>debug</b><i>_</i><b>peer</b><i>_</i><b>level</b> configuration parameters  instead.
+              Log mailer traffic.  Use  the  <b>debug</b><i>_</i><b>peer</b><i>_</i><b>list</b>  and
+              <b>debug</b><i>_</i><b>peer</b><i>_</i><b>level</b>  configuration parameters instead.
 
        <b>-U</b> (ignored)
               Initial user submission.
 
-       <b>-bd</b>    Go  into  daemon  mode.  This  mode of operation is
+       <b>-bd</b>    Go into daemon mode.  This  mode  of  operation  is
               implemented by executing the <b>postfix</b> <b>start</b> command.
 
-       <b>-bi</b>    Initialize  alias database. See the <b>newaliases</b> com-
+       <b>-bi</b>    Initialize alias database. See the <b>newaliases</b>  com-
               mand above.
 
-       <b>-bm</b>    Read mail  from  standard  input  and  arrange  for
+       <b>-bm</b>    Read  mail  from  standard  input  and  arrange for
               delivery.  This is the default mode of operation.
 
        <b>-bp</b>    List the mail queue. See the <b>mailq</b> command above.
 
-       <b>-bs</b>    Stand-alone  SMTP  server  mode. Read SMTP commands
-              from standard input, and write responses  to  stan-
+       <b>-bs</b>    Stand-alone SMTP server mode.  Read  SMTP  commands
+              from  standard  input, and write responses to stan-
               dard output.  This mode of operation is implemented
               by running the <a href="smtpd.8.html"><b>smtpd</b>(8)</a> daemon.
 
        <b>-f</b> <i>sender</i>
               Set  the  envelope  sender  address.  This  is  the
               address where delivery problems are sent to, unless
-              the message contains an <b>Errors-To:</b> message  header.
+              the  message contains an <b>Errors-To:</b> message header.
 
 
 
@@ -138,7 +138,7 @@ SENDMAIL(1)                                           SENDMAIL(1)
 
 
        <b>-h</b> <i>hop_count</i> (ignored)
-              Hop  count limit. Use the <b>hopcount</b><i>_</i><b>limit</b> configura-
+              Hop count limit. Use the <b>hopcount</b><i>_</i><b>limit</b>  configura-
               tion parameter instead.
 
        <b>-i</b>     When  reading  a message from standard input, don't

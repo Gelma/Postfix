@@ -457,7 +457,7 @@ void    smtpd_check_init(void)
     virtual_maps = maps_create(VAR_VIRTUAL_MAPS, var_virtual_maps,
 			       DICT_FLAG_LOCK);
     relocated_maps = maps_create(VAR_RELOCATED_MAPS, var_relocated_maps,
-			       DICT_FLAG_LOCK);
+				 DICT_FLAG_LOCK);
 
     /*
      * Reply is used as a cache for resolved addresses, and error_text is
