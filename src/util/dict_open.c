@@ -84,6 +84,11 @@
 /* .IP DICT_FLAG_NO_REGSUB
 /*      Disallow regular expression substitution from left-hand side data 
 /*	into the right-hand side.
+/* .IP DICT_FLAG_NO_PROXY
+/*	Disallow access through the \fBproxymap\fR service.
+/* .IP DICT_FLAG_PARANOID
+/*	A combination of all the paranoia flags: DICT_FLAG_NO_REGSUB
+/*	and DICT_FLAG_NO_PROXY.
 /* .PP
 /*	Specify DICT_FLAG_NONE for no special processing.
 /*
@@ -167,11 +172,10 @@
 #include <dict_nis.h>
 #include <dict_nisplus.h>
 #include <dict_ni.h>
-#include <dict_ldap.h>
-#include <dict_mysql.h>
 #include <dict_pcre.h>
 #include <dict_regexp.h>
 #include <dict_static.h>
+#include <dict_cidr.h>
 #include <stringops.h>
 #include <split_at.h>
 #include <htable.h>
@@ -187,7 +191,7 @@ typedef struct {
 static DICT_OPEN_INFO dict_open_info[] = {
     DICT_TYPE_ENVIRON, dict_env_open,
     DICT_TYPE_UNIX, dict_unix_open,
-#if 0
+#ifdef SNAPSHOT
     DICT_TYPE_TCP, dict_tcp_open,
 #endif
 #ifdef HAS_DBM
@@ -206,12 +210,6 @@ static DICT_OPEN_INFO dict_open_info[] = {
 #ifdef HAS_NETINFO
     DICT_TYPE_NETINFO, dict_ni_open,
 #endif
-#ifdef HAS_LDAP
-    DICT_TYPE_LDAP, dict_ldap_open,
-#endif
-#ifdef HAS_MYSQL
-    DICT_TYPE_MYSQL, dict_mysql_open,
-#endif
 #ifdef HAS_PCRE
     DICT_TYPE_PCRE, dict_pcre_open,
 #endif
@@ -219,6 +217,7 @@ static DICT_OPEN_INFO dict_open_info[] = {
     DICT_TYPE_REGEXP, dict_regexp_open,
 #endif
     DICT_TYPE_STATIC, dict_static_open,
+    DICT_TYPE_CIDR, dict_cidr_open,
     0,
 };
 
@@ -390,7 +389,7 @@ int     main(int argc, char **argv)
 	    vstream_fflush(VSTREAM_OUT);
 	    continue;
 	}
-	if (dict_changed())
+	if (dict_changed_name())
 	    msg_warn("dictionary has changed");
 	key = vstring_str(unescape(keybuf, mystrtok(&bufp, " =")));
 	value = mystrtok(&bufp, " =");

@@ -44,12 +44,12 @@
 /*	char	*str;
 /*	VSTREAM	*stream;
 /*
-/*	long	vstream_ftell(stream)
+/*	off_t	vstream_ftell(stream)
 /*	VSTREAM	*stream;
 /*
-/*	long	vstream_fseek(stream, offset, whence)
+/*	off_t	vstream_fseek(stream, offset, whence)
 /*	VSTREAM	*stream;
-/*	long	offset;
+/*	off_t	offset;
 /*	int	whence;
 /*
 /*	int	vstream_fflush(stream)
@@ -640,8 +640,11 @@ static int vstream_buf_get_ready(VBUF *bp)
      * allocation gives the application a chance to override the default
      * buffering policy.
      */
-    if (bp->data == 0)
+    if (bp->data == 0) {
 	vstream_buf_alloc(bp, VSTREAM_BUFSIZE);
+	if (bp->flags & VSTREAM_FLAG_DOUBLE) 
+	    VSTREAM_SAVE_STATE(stream, read_buf, read_fd);
+    }
 
     /*
      * If the stream is double-buffered and the write buffer is not empty,
@@ -724,6 +727,8 @@ static int vstream_buf_put_ready(VBUF *bp)
      */
     if (bp->data == 0) {
 	vstream_buf_alloc(bp, VSTREAM_BUFSIZE);
+	if (bp->flags & VSTREAM_FLAG_DOUBLE) 
+	    VSTREAM_SAVE_STATE(stream, write_buf, write_fd);
     } else if (bp->cnt <= 0) {
 	if (VSTREAM_FFLUSH_SOME(stream))
 	    return (VSTREAM_EOF);
@@ -790,7 +795,7 @@ static int vstream_buf_space(VBUF *bp, int want)
 
 /* vstream_fseek - change I/O position */
 
-long    vstream_fseek(VSTREAM *stream, long offset, int whence)
+off_t   vstream_fseek(VSTREAM *stream, off_t offset, int whence)
 {
     char   *myname = "vstream_fseek";
     VBUF   *bp = &stream->buf;
@@ -802,11 +807,21 @@ long    vstream_fseek(VSTREAM *stream, long offset, int whence)
      */
     switch (bp->flags & (VSTREAM_FLAG_READ | VSTREAM_FLAG_WRITE)) {
     case VSTREAM_FLAG_WRITE:
-	if (bp->ptr > bp->data)
+	if (bp->ptr > bp->data) {
+	    if (whence == SEEK_CUR)
+		offset += (bp->ptr - bp->data);	/* add unwritten data */
+	    else if (whence == SEEK_END)
+		bp->flags &= ~VSTREAM_FLAG_SEEK;
 	    if (VSTREAM_FFLUSH_SOME(stream))
 		return (-1);
-	/* FALLTHROUGH */
+	}
+	VSTREAM_BUF_AT_END(bp);
+	break;
     case VSTREAM_FLAG_READ:
+	if (whence == SEEK_CUR)
+	    offset += bp->cnt;			/* subtract unread data */
+	else if (whence == SEEK_END)
+	    bp->flags &= ~VSTREAM_FLAG_SEEK;
     case 0:
 	VSTREAM_BUF_AT_END(bp);
 	break;
@@ -842,7 +857,7 @@ long    vstream_fseek(VSTREAM *stream, long offset, int whence)
 
 /* vstream_ftell - return file offset */
 
-long    vstream_ftell(VSTREAM *stream)
+off_t   vstream_ftell(VSTREAM *stream)
 {
     VBUF   *bp = &stream->buf;
 
@@ -859,7 +874,7 @@ long    vstream_ftell(VSTREAM *stream)
      * the last read, write or seek operation.
      */
     if ((bp->flags & VSTREAM_FLAG_SEEK) == 0) {
-	if ((stream->offset = lseek(stream->fd, 0L, SEEK_CUR)) < 0) {
+	if ((stream->offset = lseek(stream->fd, (off_t) 0, SEEK_CUR)) < 0) {
 	    bp->flags |= VSTREAM_FLAG_NSEEK;
 	    return (-1);
 	}

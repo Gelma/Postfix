@@ -55,6 +55,7 @@
 #include <mail_params.h>
 #include <rec_type.h>
 #include <ext_prop.h>
+#include <cleanup_user.h>
 
 /* Application-specific. */
 
@@ -69,25 +70,36 @@ void    cleanup_out_recipient(CLEANUP_STATE *state, const char *orcpt,
     char  **cpp;
 
     /*
-     * Apply the duplicate recipient filter before virtual expansion, so that
-     * we can distinguish between different addresses that map onto the same
-     * mailbox. The recipient will use our original recipient message header
-     * to figure things out.
+     * XXX Not elegant, but eliminates complexity in the record reading loop.
      */
-    if (been_here_fixed(state->dups, recip) != 0)
-	return;
+    if (!var_enable_orcpt)
+	orcpt = "";
 
-    if (cleanup_virt_alias_maps == 0) {
-	cleanup_out_string(state, REC_TYPE_ORCP, orcpt);
-	cleanup_out_string(state, REC_TYPE_RCPT, recip);
-	state->rcpt_count++;
+    /*
+     * Distinguish between different original recipient addresses that map
+     * onto the same mailbox. The recipient will use our original recipient
+     * message header to figure things out.
+     */
+#define STREQ(x, y) (strcmp((x), (y)) == 0)
+
+    if ((state->flags & CLEANUP_FLAG_MAP_OK) == 0
+	|| cleanup_virt_alias_maps == 0) {
+	if ((STREQ(orcpt, recip) ? been_here(state->dups, "%s", orcpt) :
+	     been_here(state->dups, "%s\n%s", orcpt, recip)) == 0) {
+	    cleanup_out_string(state, REC_TYPE_ORCP, orcpt);
+	    cleanup_out_string(state, REC_TYPE_RCPT, recip);
+	    state->rcpt_count++;
+	}
     } else {
 	argv = cleanup_map1n_internal(state, recip, cleanup_virt_alias_maps,
 				  cleanup_ext_prop_mask & EXT_PROP_VIRTUAL);
 	for (cpp = argv->argv; *cpp; cpp++) {
-	    cleanup_out_string(state, REC_TYPE_ORCP, orcpt);
-	    cleanup_out_string(state, REC_TYPE_RCPT, *cpp);
-	    state->rcpt_count++;
+	    if ((STREQ(orcpt, *cpp) ? been_here(state->dups, "%s", orcpt) :
+		 been_here(state->dups, "%s\n%s", orcpt, *cpp)) == 0) {
+		cleanup_out_string(state, REC_TYPE_ORCP, orcpt);
+		cleanup_out_string(state, REC_TYPE_RCPT, *cpp);
+		state->rcpt_count++;
+	    }
 	}
 	argv_free(argv);
     }

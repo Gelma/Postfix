@@ -95,6 +95,11 @@
 /*	Function to be executed prior to accepting a new connection.
 /* .sp
 /*	Only the last instance of this parameter type is remembered.
+/* .IP "MAIL_SERVER_PRE_DISCONN (VSTREAM *, void *(char *service_name, char **argv))"
+/*	A pointer to a function that is called
+/*	by the multi_server_disconnect() function (see below).
+/* .sp
+/*	Only the last instance of this parameter type is remembered.
 /* .IP "MAIL_SERVER_IN_FLOW_DELAY (none)"
 /*	Pause $in_flow_delay seconds when no "mail flow control token"
 /*	is available. A token is consumed for each connection request.
@@ -114,7 +119,7 @@
 /*	The var_idle_limit variable limits the time that a service
 /*	receives no client connection requests before it commits suicide.
 /*	This value is taken from the global \fBmain.cf\fR configuration
-/*	file. Setting \fBvar_use_limit\fR to zero disables the idle limit.
+/*	file. Setting \fBvar_idle_limit\fR to zero disables the idle limit.
 /* DIAGNOSTICS
 /*	Problems and transactions are logged to \fBsyslogd\fR(8).
 /* SEE ALSO
@@ -173,6 +178,7 @@
 #include <debug_process.h>
 #include <mail_params.h>
 #include <mail_conf.h>
+#include <mail_dict.h>
 #include <timed_ipc.h>
 #include <resolve_local.h>
 #include <mail_flow.h>
@@ -199,6 +205,7 @@ static void (*multi_server_onexit) (char *, char **);
 static void (*multi_server_pre_accept) (char *, char **);
 static VSTREAM *multi_server_lock;
 static int multi_server_in_flow_delay;
+static void (*multi_server_pre_disconn) (VSTREAM *, char *, char **);
 
 /* multi_server_exit - normal termination */
 
@@ -233,6 +240,8 @@ void    multi_server_disconnect(VSTREAM *stream)
 {
     if (msg_verbose)
 	msg_info("connection closed fd %d", vstream_fileno(stream));
+    if (multi_server_pre_disconn)
+	multi_server_pre_disconn(stream, multi_server_name, multi_server_argv);
     event_disable_readwrite(vstream_fileno(stream));
     (void) vstream_fclose(stream);
     client_count--;
@@ -389,8 +398,10 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
     MAIL_SERVER_LOOP_FN loop = 0;
     int     key;
     char   *transport = 0;
+#if 0
     char   *lock_path;
     VSTRING *why;
+#endif
     int     alone = 0;
     int     zerolimit = 0;
     WATCHDOG *watchdog;
@@ -435,6 +446,11 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
      * override compiled-in defaults or configured parameter values.
      */
     mail_conf_suck();
+
+    /*
+     * Register dictionaries that use higher-level interfaces and protocols.
+     */
+    mail_dict_init();
 
     /*
      * Pick up policy settings from master process. Shut up error messages to
@@ -532,6 +548,9 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
 	case MAIL_SERVER_PRE_ACCEPT:
 	    multi_server_pre_accept = va_arg(ap, MAIL_SERVER_ACCEPT_FN);
 	    break;
+	case MAIL_SERVER_PRE_DISCONN:
+	    multi_server_pre_disconn = va_arg(ap, MAIL_SERVER_DISCONN_FN);
+	    break;
 	case MAIL_SERVER_IN_FLOW_DELAY:
 	    multi_server_in_flow_delay = 1;
 	    break;
@@ -619,14 +638,14 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
     /*
      * Run pre-jail initialization.
      */
+    if (chdir(var_queue_dir) < 0)
+	msg_fatal("chdir(\"%s\"): %m", var_queue_dir);
     if (pre_init)
 	pre_init(multi_server_name, multi_server_argv);
 
     /*
      * Optionally, restrict the damage that this process can do.
      */
-    if (chdir(var_queue_dir) < 0)
-	msg_fatal("chdir(\"%s\"): %m", var_queue_dir);
     resolve_local_init();
     chroot_uid(root_dir, user_name);
 

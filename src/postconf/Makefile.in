@@ -3,9 +3,6 @@ SRCS	= postconf.c
 OBJS	= postconf.o
 HDRS	= 
 TESTSRC	= 
-WARN	= -W -Wformat -Wimplicit -Wmissing-prototypes \
-	-Wparentheses -Wstrict-prototypes -Wswitch -Wuninitialized \
-	-Wunused
 DEFS	= -I. -I$(INC_DIR) -D$(SYSTYPE)
 CFLAGS	= $(DEBUG) $(OPT) $(DEFS)
 TESTPROG= 
@@ -88,6 +85,7 @@ postconf.o: ../../include/vstring_vstream.h
 postconf.o: ../../include/myflock.h
 postconf.o: ../../include/mynetworks.h
 postconf.o: ../../include/mail_conf.h
+postconf.o: ../../include/mail_dict.h
 postconf.o: ../../include/mail_proto.h
 postconf.o: ../../include/iostuff.h
 postconf.o: ../../include/attr.h
@@ -100,12 +98,12 @@ postconf.o: bool_vars.h
 postconf.o: int_vars.h
 postconf.o: str_vars.h
 postconf.o: raw_vars.h
-postconf.o: smtp_vars.h
+postconf.o: auto_vars.h
 postconf.o: install_vars.h
 postconf.o: time_table.h
 postconf.o: bool_table.h
 postconf.o: int_table.h
 postconf.o: str_table.h
-postconf.o: smtp_table.h
+postconf.o: auto_table.h
 postconf.o: install_table.h
 postconf.o: raw_table.h

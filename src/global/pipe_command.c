@@ -132,6 +132,7 @@
 #include <iostuff.h>
 #include <timed_wait.h>
 #include <set_ugid.h>
+#include <set_eugid.h>
 #include <argv.h>
 
 /* Global library. */
@@ -260,8 +261,7 @@ static int pipe_command_write(int fd, void *buf, unsigned len)
      */
     if (write_wait(fd, maxtime) < 0) {
 	if (pipe_command_timeout == 0) {
-	    if (msg_verbose)
-		msg_info("%s: time limit exceeded", myname);
+	    msg_warn("%s: write time limit exceeded", myname);
 	    pipe_command_timeout = 1;
 	}
 	return (0);
@@ -282,8 +282,7 @@ static int pipe_command_read(int fd, void *buf, unsigned len)
      */
     if (read_wait(fd, maxtime) < 0) {
 	if (pipe_command_timeout == 0) {
-	    if (msg_verbose)
-		msg_info("%s: time limit exceeded", myname);
+	    msg_warn("%s: read time limit exceeded", myname);
 	    pipe_command_timeout = 1;
 	}
 	return (0);
@@ -292,9 +291,28 @@ static int pipe_command_read(int fd, void *buf, unsigned len)
     }
 }
 
+/* kill_command - terminate command forcibly */
+
+static void kill_command(pid_t pid, int sig, uid_t kill_uid, gid_t kill_gid)
+{
+    pid_t   saved_euid = geteuid();
+    gid_t   saved_egid = getegid();
+
+    /*
+     * Switch privileges to that of the child process. Terminate the child
+     * and its offspring.
+     */
+    set_eugid(kill_uid, kill_gid);
+    if (kill(-pid, sig) < 0 && kill(pid, sig) < 0)
+	msg_warn("cannot kill process (group) %lu: %m",
+		 (unsigned long) pid);
+    set_eugid(saved_euid, saved_egid);
+}
+
 /* pipe_command_wait_or_kill - wait for command with time limit, or kill it */
 
-static int pipe_command_wait_or_kill(pid_t pid, WAIT_STATUS_T *statusp, int sig)
+static int pipe_command_wait_or_kill(pid_t pid, WAIT_STATUS_T *statusp, int sig,
+				             uid_t kill_uid, gid_t kill_gid)
 {
     int     maxtime = (pipe_command_timeout == 0) ? pipe_command_maxtime : 1;
     char   *myname = "pipe_command_wait_or_kill";
@@ -305,11 +323,10 @@ static int pipe_command_wait_or_kill(pid_t pid, WAIT_STATUS_T *statusp, int sig)
      */
     if ((n = timed_waitpid(pid, statusp, 0, maxtime)) < 0 && errno == ETIMEDOUT) {
 	if (pipe_command_timeout == 0) {
-	    if (msg_verbose)
-		msg_info("%s: time limit exceeded", myname);
+	    msg_warn("%s: child wait time limit exceeded", myname);
 	    pipe_command_timeout = 1;
 	}
-	kill(-pid, sig);
+	kill_command(pid, sig, kill_uid, kill_gid);
 	n = waitpid(pid, statusp, 0);
     }
     return (n);
@@ -327,6 +344,7 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
     int     log_len;
     pid_t   pid;
     int     write_status;
+    int     write_errno;
     WAIT_STATUS_T wait_status;
     int     cmd_in_pipe[2];
     int     cmd_out_pipe[2];
@@ -358,10 +376,19 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
      * truncated without too much loss. I could even argue that truncating
      * the amount of diagnostic output is a good thing to do, but I won't go
      * that far.
+     * 
+     * Turn on non-blocking writes to the child process so that we can enforce
+     * timeouts after partial writes.
+     * 
+     * XXX Too much trouble with different systems returning weird write()
+     * results when a pipe is writable.
      */
     if (pipe(cmd_in_pipe) < 0 || pipe(cmd_out_pipe) < 0)
 	msg_fatal("%s: pipe: %m", myname);
     non_blocking(cmd_out_pipe[1], NON_BLOCKING);
+#if 0
+    non_blocking(cmd_in_pipe[1], NON_BLOCKING);
+#endif
 
     /*
      * Spawn off a child process and irrevocably change privilege to the
@@ -386,7 +413,8 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
 	 */
     case 0:
 	set_ugid(args.uid, args.gid);
-	setsid();
+	if (setsid() < 0)
+	    msg_warn("setsid failed: %m");
 
 	/*
 	 * Pipe plumbing.
@@ -465,6 +493,7 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
 				 args.delivered, src,
 				 cmd_in_stream, args.flags,
 				 args.eol, DONT_CARE_WHY);
+	write_errno = errno;
 
 	/*
 	 * Capture a limited amount of command output, for inclusion in a
@@ -488,8 +517,9 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
 	 * not just the child process but also its offspring.
 	 */
 	if (pipe_command_timeout)
-	    (void) kill(-pid, SIGKILL);
-	if (pipe_command_wait_or_kill(pid, &wait_status, SIGKILL) < 0)
+	    kill_command(pid, SIGKILL, args.uid, args.gid);
+	if (pipe_command_wait_or_kill(pid, &wait_status, SIGKILL,
+				      args.uid, args.gid) < 0)
 	    msg_fatal("wait: %m");
 	if (pipe_command_timeout) {
 	    vstring_sprintf(why, "Command time limit exceeded: \"%s\"%s%s",
@@ -524,8 +554,12 @@ int     pipe_command(VSTREAM *src, VSTRING *why,...)
 	    }
 	} else if (write_status & MAIL_COPY_STAT_CORRUPT) {
 	    return (PIPE_STAT_CORRUPT);
-	} else if (write_status && errno != EPIPE) {
-	    vstring_sprintf(why, "Command failed: %m: \"%s\"", args.command);
+	} else if (write_status && write_errno != EPIPE) {
+	    errno = write_errno;
+	    vstring_sprintf(why, "Command failed due to %s: %m: \"%s\"",
+	      (write_status & MAIL_COPY_STAT_READ) ? "delivery read error" :
+	    (write_status & MAIL_COPY_STAT_WRITE) ? "delivery write error" :
+			    "some delivery error", args.command);
 	    return (PIPE_STAT_DEFER);
 	} else {
 	    return (PIPE_STAT_OK);
