@@ -20,6 +20,9 @@ update printfck:
 	 (set -e; echo "[$$i]"; cd $$i; $(MAKE) $(OPTS) $@) || exit 1; \
 	done
 
+install: update
+	@sh INSTALL.sh
+
 printfck: update
 
 depend clean:

@@ -7,7 +7,7 @@ PATH=/bin:/usr/bin:/usr/sbin:/usr/etc:/sbin:/etc
 umask 022
 
 # Workaround, should edit main.cf in place.
-trap 'rm -f ./main.cf; exit 1' 0 1 2 3 15
+trap 'rm -f ./main.cf ./junk; exit 1' 1 2 3 15
 
 cat <<EOF
 
@@ -143,6 +143,7 @@ done
 
 # Workaround, should edit main.cf in place.
 echo "mail_owner = $owner" >./main.cf
+echo "myhostname = xx.yy" >>./main.cf
 
 bin/postmap -c . -q "$owner" unix:passwd.byname >/dev/null || {
     echo "$owner needs an entry in the passwd file" 1>&2
@@ -241,10 +242,24 @@ esac
 compare_or_replace a+x,go-w $postfix_script $config_directory/postfix-script ||
     exit 1
 
-# Install manual pages (optional). We just clobber whatever is there.
+# Install manual pages (optional). We just replace whatever is there.
 
 case $manpages in
 no) ;;
- *) test -d $manpages || mkdir -p $manpages || exit 1
-    (cd man && tar cf - man?) | (cd $manpages && tar xf -)
+ *) (
+     cd man || exit 1
+     for dir in man?
+	 do mkdir -p $manpages/$dir || exit 1
+     done
+     for file in man?/*
+     do
+	 cmp -s $file $manpages/$file || {
+	     rm -f $manpages/$file
+	     cp $file $manpages/$file || exit 1
+	     chmod 644 $manpages/$file || exit 1
+	 }
+     done
+    )
 esac
+
+rm -f ./main.cf ./junk

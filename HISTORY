@@ -3140,3 +3140,22 @@ Apologies for any names omitted.
 
 	Documentation: removed spurious "do not edit" comments from
 	the sample pcre and regexp configuration files.
+
+19991117
+
+	Portability: SunOS 4 has no SA_RESTART. File: util/watchdog.c.
+
+19991118
+
+	Bugfix: the RFC822 address parser would misparse a leading
+	\ as an atom all by itself. Problem reported by Keith
+	Stevenson @ louisville.edu. File: global/tok822_parse.c.
+
+19991121
+
+	Bugfix: INSTALL.sh now installs manual pages with proper
+	permissions and ownership.
+
+	Bugfix: the LDAP client did not properly escape special
+	characters in lookup keys (patch by John Hensley).
+	File: util/dict_ldap.c.
