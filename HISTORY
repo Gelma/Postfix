@@ -3639,9 +3639,19 @@ Apologies for any names omitted.
 
 20000308
 
+	Bugfix: the unused db and dbm "delete" routines would
+	clobber the per-dictionary flags when called before reading
+	or writing the table. Files: util/dict_dbm.c, util/dict_db.c.
+	Lutz Jaenicke @ aet.TU-Cottbus.DE.
+
 	Bugfix: the SMTP server would produce a cryptic message
 	when a queue file write error happened before it had written
 	any recipients.  Keith Stevenson. File: smtpd/smtpd.c.
+
+	Robustness: the db and dbm "delete" routines didn't adjust
+	to dictionaries with/without one trailing null in lookup
+	keys and values. Did a complete rewrite of the routines.
+	Files: util/dict_db.c, util/dict_dbm.c.
 
 20000311
 
@@ -3732,3 +3742,87 @@ Apologies for any names omitted.
 	feature uses the same filtering syntax as the header_checks
 	feature.  File:  cleanup/cleanup_message.c. See also the
 	conf/sample-filter.cf file.
+
+20000617
+
+	Bugfix: the maildir delivery routine left temporary files
+	lying around after unsuccessful delivery (problem reported
+	by Brian Laughton @ Corp.Axxent.Ca).
+
+20000621
+
+	AIX 4.x had POSIX regular expression support all the time
+	I was working on Postfix. Beter find out late than never.
+
+20000623
+
+	Bugfix: the SMTP server did not reset the so-called junk
+	command counter after successfull delivery (Mark Hoffman
+	@ wallst.com).  File: smtpd/smtpd.c.
+
+20000708
+
+	Portability: support for NEXT/OPENSTEP requires extra
+	include file in util/watchdog.c (Masaki Murase).
+
+20000718
+
+	Robustness: make_dirs() now continues when a missing
+	directory is created by another process.
+
+20000726
+
+	Robustness: added watchdog_pat() routine to keep the watchdog
+	quiet if a client stays connected for a lot of time. Files:
+	util/watchdog.[hc], smtpd/smtpd.c.
+
+20000729
+
+	Robustness: if relayhost is specified but the host does
+	not exist, defer mail instead of bouncing it (which would
+	lose the mail if the bounce would have to be delivered to
+	that same non-existent relayhost). Problem reported by
+	Chris Cooper @ maths.ox.ac.uk. File: smtp/smtp_connect.c.
+
+20000821
+
+	Cleanup: smtpd now replies with 555 when the client sends
+	unrecognized RCPT TO parameters, as required by RFC 1869
+	(problem report by Robert Norris @ its.monash.edu.au).
+	File: smtpd/smtpd.c.
+
+20000905
+
+	Robustness: the dns client now rejects malformed domain
+	names rather than depending on the DNS to report that the
+	name does not exist. Linux returns a rather misleading
+	server failure code as found out by Patrik Rak. File:
+	dns/dns_lookup.c.
+
+20000913
+
+	Bugfix: the rmail script did not handle remote UUCP systems
+	that send a from_ line with unqualified envelope sender.
+	Reported by Luciano Mannucci.
+
+	Compatibility: don't insert Sender: header lines. Sendmail
+	has not done so for at least 10 years, if it ever did.
+	Problem reported by Brad Knowles. File: cleanup/cleanup_message.c.
+
+20000916
+
+	Bugfix: when propagating an address extension in a virtual
+	or canonical mapping, cleanup accesses memory that is no
+	longer allocated. This can happen when the result address
+	length is more than 100 characters.  Problem reported by
+	Adi Prasaja @ satunet.com. File: global/mail_addr_crunch.c.
+
+	Bugfix: fixed a misleading error message when the cleanup
+	server reaches the queue file size limit. Fix by Robby
+	Griffin @ MIT.EDU.  File: cleanup/cleanup_message.c.
+
+20000917
+
+	Bugfix: postalias -i would complain about duplicate entries
+	for the Sendmail-compatible @ entry and for the NIS-compatible
+	YP_LAST_MODIFIED and YP_MASTER_NAME entries.
