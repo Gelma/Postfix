@@ -1391,7 +1391,7 @@ static int generic_checks(SMTPD_STATE *state, char *name,
 	return (1);
     }
     if (strcasecmp(name, REJECT_NON_FQDN_SENDER) == 0) {
-	if (state->sender)
+	if (state->sender && *state->sender)
 	    *status = reject_non_fqdn_address(state, state->sender,
 					  state->sender, SMTPD_NAME_SENDER);
 	return (1);
