@@ -1,0 +1,1106 @@
+<html>
+
+<!--Warning, preformatted content! -->
+
+<head>
+
+<title>Postfix Frequently Asked Questions</title>
+
+</head>
+
+<body>
+
+<h1><a href="big-picture.html"><img src="small-picture.gif" width="115" height="45"></a> Postfix Frequently Asked Questions</h1>
+
+<hr>
+
+<a href="index.html">Up one level</a> | Postfix FAQ
+
+<h2>Table of contents</h2>
+
+<ul>
+
+<li><a href="#intranet">Running Postfix inside an intranet</a>
+
+<li><a href="#firewall">Running Postfix on a firewall</a>
+
+<li><a href="#dialup">Running Postfix on a dialup machine</a>
+
+<p>
+
+<li><a href="#local">Delivering some users locally while sending mail as user@domain</a>
+
+<li><a href="#masquerade">Address masquerading with exceptions</a>
+
+<li><a href="#scanning">Support for virus scanning</a>
+
+<li><a href="#maildir">Support for maildir-style mailboxes</a>
+
+<li><a href="#procmail">Using Procmail for local delivery</a>
+
+<li><a href="#verbose">Postfix breaks "sendmail -v"</a>
+
+<li><a href="#delivered">Getting rid of Delivered-To:</a>
+
+<li><a href="#approve">Postfix breaks the majordomo "approve" command</a>
+
+<p>
+
+<li><a href="#uucp">Setting up an Internet to UUCP gateway</a>
+
+<li><a href="#uucp-only">Using UUCP as the default transport</a>
+
+<li><a href="#fax">Sending mail to a FAX machine</a>
+
+<p>
+
+<li><a href="#timeouts">Mail fails with timeout or lost connection</a>
+
+<li><a href="#bind">Undefined symbols: ___dn_expand, ___res_init etc.</a>
+
+<li><a href="#db">Using DB libraries on Solaris etc.</a>
+
+</ul>
+
+<hr>
+
+<a name="intranet"> <h2>Running Postfix inside an intranet</h2> </a>
+
+The simplest way to set up Postfix on a host inside a firewalled
+network is to send all your mail to the intranet mail gateway, and
+to let that gateway take care of forwarding.
+
+<p>
+
+<ul>
+
+<li>Edit the <b>main.cf</b> file and specify:
+
+<p>
+
+<dl>
+
+<dd><b>relayhost = $mydomain</b>
+
+</dl>
+
+<p>
+
+This assumes that your organization has set up multiple internal
+MX hosts for the local domain.
+
+<p>
+
+If your intranet does not use MX records internally, you have to
+specify the gateway host itself:
+
+<p>
+
+<dl>
+
+<dd><b>relayhost = </b><i>gateway.my.domain</i>
+
+</dl>
+
+<p>
+
+<li>If you want to deliver internal mail directly without going through
+the intranet mail gateway, there are two possibilities.
+
+<p>
+
+<ol>
+
+<li>Specify the intranet mail gateway as the fall-back relay for
+all mail with an unknown or unreachable destination:
+
+<p>
+
+<dl>
+
+<dl>
+
+<dt>main.cf:
+
+<dd><b>fallback_relay = $mydomain</b>
+
+</dl>
+
+<p>
+
+This assumes that your organization has set up multiple internal
+MX hosts for the local domain.
+
+<p>
+
+If your intranet does not use MX records internally, you have to
+specify the gateway host itself:
+
+<p>
+
+<dl>
+
+<dt>main.cf:
+
+<dd><b>fallback_relay = </b><i>gateway.my.domain</i>
+
+</dl>
+
+</dl>
+
+<p>
+
+<li>Specify routing information for the local domain in the <a
+href="transport.5.html">transport</a> table, and enable <a
+href="transport.5.html">transport</a> table lookups.
+
+<p>
+
+<dl>
+
+<dl>
+
+<dt>main.cf:
+
+<dd><b>transport_maps = hash:/etc/postfix/transport</b>
+
+<p>
+
+<dt>/etc/postfix/transport:
+
+<dd><i>my.domain</i> &nbsp; <b>smtp</b>:
+
+<dd><i>.my.domain</i> &nbsp; <b>smtp</b>:
+
+</dl>
+
+</dl>
+
+<p>
+
+Specify <b>dbm:/etc/postfix/transport</b> if your system
+uses <b>dbm</b> files instead of <b>db</b>.
+
+</ol>
+
+<p>
+
+<li>Execute the command <b>postfix reload</b> to make the
+changes effective.
+
+</ul>
+
+<hr>
+
+<a name="firewall"><h2>Running Postfix on a firewall</h2> </a>
+
+Note: this section depends on accidental properties of the
+implementation so this information is subject to change.
+
+<p>
+
+How to set up Postfix on the firewall machine so that it relays
+mail for <i>my.domain</i> to a gateway machine on the inside, and
+so that it refuses mail for <i>*.my.domain</i>? The problem is that
+the standard <a href="uce.html#relay_domains">relay_domains</a>
+mail relaying restriction allows mail to <i>*.my.domain</i> when
+you specify <i>my.domain</i>.
+
+<p>
+
+<ul>
+
+<li>Specify a null <a href="uce.html#relay_domains">relay_domains</a>
+parameter plus a <a href="virtual.5.html">virtual</a> table to
+route mail for <i>my.domain</i> to the inside machine:
+
+<p>
+
+<dl>
+
+<dt>/etc/postfix/main.cf:
+
+<dd><b>mydestination = $myhostname</b>, <i>my.domain</i>,
+<b>localhost</b>.<i>my.domain</i>
+
+<dd><b>relay_domains = </b>
+
+<dd><b>virtual_maps = hash:/etc/postfix/virtual</b>
+
+<p>
+
+<dt>/etc/postfix/virtual:
+
+<dd><i>@my.domain</i> &nbsp; <i>@inside-gateway.my.domain</i>
+
+</dl>
+
+<p>
+
+Specify <b>dbm:/etc/postfix/virtual</b> if your system uses <b>dbm</b>
+files instead of <b>db</b>. 
+
+<p>
+
+<li>Execute the command <b>postfix reload</b> after a
+configuration change.
+
+</ul>
+
+<p>
+
+Unfortunately, the solution cannot use the transport table, because
+that table is ignored for destinations that match <b>$mydestination</b>.
+That's an implementation error, and it will be removed.
+
+<hr>
+
+<a name="dialup"><h2>Running Postfix on a dialup machine</h2></a>
+
+<ul>
+
+<li> Route all outgoing mail to your provider.
+
+<p>
+
+If your machine is disconnected most of the time, there isn't
+a lot of opportunity for Postfix to deliver mail to hard-to-reach
+corners of the Internet. It's better to drop the mail to a machine
+that is connected all the time.
+
+<p>
+
+<dl>
+
+<dt><b>/etc/postfix/main.cf:</b>
+
+<dd><b>relayhost = smtprelay.someprovider.com</b>
+
+</dl>
+
+<p>
+
+<li> <a name="spontaneous_smtp">Disable spontaneous SMTP mail
+delivery.</a>
+
+<p>
+
+Normally, Postfix attempts to deliver outbound mail at its convenience.
+If your machine uses on-demand dialup IP, this causes your system
+to place a telephone call whenever you submit new mail, and whenever
+Postfix retries to deliver delayed mail. To prevent such telephone
+calls from being placed, disable spontaneous SMTP mail deliveries.
+
+<p>
+
+<dl>
+
+<dt><b>/etc/postfix/main.cf:</b>
+
+<dd><b>defer_transports = smtp</b> (Only for systems that use
+on-demand dialup IP)
+
+</dl>
+
+<p>
+
+<li> Disable SMTP client DNS lookups.
+
+<p>
+
+Some people use Postfix to deliver mail across a LAN that is
+disconnected most of the time.  Under such conditions, mail delivery
+can suffer from delays while the Postfix SMTP client performs sender
+and recipient domain DNS lookups in order to be standards-compliant.
+To prevent these delays, disable all SMTP client DNS lookups.
+
+<p>
+
+<dl>
+
+<dt><b>/etc/postfix/main.cf:</b>
+
+<dd><b>disable_dns_lookups = yes</b> (Only for delivery across LANs
+that are disconnected most of the time)
+
+</dl>
+
+<p>
+
+<i> When you disable DNS lookups, you must specify the</i>
+<b>relayhost</b> <i> as either a numeric IP address, or as a hostname
+that resolves to one or more IP addresses (with DNS lookup disabled,
+Postfix does no</i> <b>MX</b> lookup).
+
+<p>
+
+<li> Flush the mail queue whenever the Internet link is established.
+
+<p>
+
+Put the following command into your PPP or SLIP dialup scripts:
+
+<p>
+
+<dl>
+
+<dd><b>/usr/sbin/sendmail -q</b> (whenever the Internet link is up)
+
+</dl>
+
+<p>
+
+The exact location of the <b>sendmail</b> command is system-specific.
+With some UNIX versions, use <b>/usr/lib/sendmail</b>.
+
+If you have disabled <a href="#spontaneous_smtp">spontaneous SMTP
+mail delivery</a>, you also need to run the above command every
+now and then while the dialup link is up, so that newly-posted mail
+is flushed from the queue.
+
+</ul>
+
+<hr>
+
+<a name="local"><h2>Delivering some users locally while sending mail as user@domain</h2></a>
+
+<ul>
+
+<li>In order to send mail as <i>user@domain</i>, edit
+<b>/etc/postfix/main.cf</b> and specify what domain
+is to be appended to addresses that do not have a domain:
+
+<p>
+
+<dl>
+
+<dd><b>myorigin = </b><i>domain</i>
+
+</dl>
+
+<p>
+
+<li>In order to receive some users locally, such as <b>root</b> or
+<b>postmaster</b>,
+
+<p>
+
+<ul>
+
+<li>edit <b>/etc/postfix/main.cf</b> and specify a virtual lookup table:
+
+<p>
+
+<dl>
+
+<dd><b>virtual_maps = hash:/etc/postfix/virtual</b>
+
+</dl>
+
+<p>
+
+<li>edit <b>/etc/postfix/virtual</b> and specify non-default destinations:
+
+<p>
+
+<dl>
+
+<dd><b>root &nbsp; root@localhost</b>
+
+<dd><b>postmaster &nbsp; postmaster@localhost</b>
+
+</dl>
+
+</ul>
+
+<p>
+
+<li>Execute the command <b>postmap /etc/postfix/virtual</b> to
+update the table, and <b>postfix reload</b> to make the changes
+effective.
+
+</ul>
+
+<hr>
+
+<a name="masquerade"><h2>Address masquerading with exceptions</h2></a>
+
+For people outside your organization it can be desirable to only
+see addresses of the form <i>user@company.com</i> rather than
+addresses with individual internal host names.  This can be achieved
+with address masquerading.
+
+<p>
+
+Address masquerading is intended for use only on mail gateways.
+
+<ul>
+
+<li>In order to have all mail through the gateway host appear as
+coming from <i>user@my.domain</i>, edit <b>/etc/postfix/main.cf</b>
+and specify:
+
+<p>
+
+<dl>
+
+<dd><b>masquerade_domains = </b><i>$mydomain</i>
+
+</dl>
+
+<p>
+
+Note that the gateway should have <b>append_dot_domain</b> and
+<b>append_myorigin</b> turned on (which is the default setting) so
+that all addresses are fully qualified before they are subjected
+to address masquerading.
+
+</ul>
+
+<p>
+
+In some cases, you may wish to have certain users or hosts exempted
+from masquerading.
+
+<ul>
+
+<li>To exempt certain <i>users</i> from masquerading,
+such as <b>root</b>, add:
+
+<p>
+
+<dl>
+
+<dd><b>masquerade_exceptions = </b><i>root</i>
+
+</dl>
+
+<p>
+
+<li>To exempt certain <i>hosts</i> from masquerading, write
+<b>masquerade_domains</b> as:
+
+<p>
+
+<dl>
+
+<dd><b>masquerade_domains = </b><i>somehost.my.domain otherhost.my.domain
+$mydomain</i>
+
+</dl>
+
+<p>
+
+Note that the order above is crucial: exemptions such as
+<i>somehost.my.domain</i> must precede <i>$mydomain</i> in the
+statement.
+
+<p>
+
+It should go without saying that if a particular host you wish to
+exempt this way is originating mail as <i>user@my.domain</i> in
+the first place, you can hardly exempt it.
+
+<p>
+
+</ul>
+
+As usual, execute the command <b>postfix reload</b> to make the changes
+effective.
+
+<p>
+
+<hr>
+
+<a name="scanning"><h2>Support for virus scanning</h2> </a>
+
+Would not it be great if operating systems and applications actually
+worked the way they are supposed to, instead of being as fragile
+as today's products? Well, we can solve only one problem at a time.
+
+<p>
+
+Currently, Postfix has no hooks to let other programs inspect every
+message, so the scanning has to be done before mail enters Postfix
+or while mail leaves Postfix, for example at mailbox delivery time.
+
+<p>
+
+<dl>
+
+<dt>Examples:
+
+<dl>
+
+<dt><b>mailbox_command = </b><i>/some/program ...</i>
+
+<dd>specifies a command that runs whenever mail is delivered to
+mailbox.  See the sample <b>main.cf</b> file for examples. In
+<b>/etc/aliases</i>, you must specify an alias for <b>root</b> that
+directs mail to a real person, otherwise funny things happen with
+mail sent to <b>root</b>.
+
+<p>
+
+<dt><b> mailbox_transport = </b><i>foo</i>
+
+<dd>delegates local mailbox delivery to the transport <i>foo</i> as
+configured in <b>/etc/postfix/master.cf</b>. If you follow this
+route you will build something around the pipe mailer. See examples
+in <b>master.cf</b>.
+
+</dl>
+
+</dl>
+
+<hr>
+
+<a name="maildir"><h2>Support for maildir-style mailboxes</h2> </a>
+
+<b>Maildir</b> is a specific one-file-per-message organization that
+was introduced with the <b>qmail</b> system by Daniel Bernstein.
+
+<p>
+
+Postfix supports the <b>maildir</b> mailbox format.  Edit <b>main.cf</b>
+and specify a line with: <b>home_mailbox = Maildir/</b> (any relative
+pathname that ends in <b>/</b> will do).
+
+<p>
+
+The maildir format is also supported for delivery from aliases or
+<b>.forward</b> files. Specify <i>/file/name/</i> as destination.
+The trailing <b>/</b> turns on <b>maildir</b> delivery.
+
+<hr>
+
+<a name="procmail"><h2>Using Procmail for local delivery</h2> </a>
+
+<ul>
+
+<li>Edit <b>/etc/postfix/main.cf</b>, and specify <b>procmail</b> as the 
+command for mailbox delivery:
+
+<p>
+
+<dl>
+
+<dd><b>mailbox_command = </b><i>/path/to/procmail</i>
+
+<p>
+
+<dd><b>mailbox_command = </b><i>/path/to/procmail</i><b> &nbsp; -a
+&nbsp; "$EXTENSION"</b>
+
+</dl>
+
+<p>
+
+If you can, avoid using any shell meta characters or built-ins
+such as <b>$</b> or <b>"</b> or <b>IFS</b> or <b>&amp;&amp;</b>,
+because they force Postfix to run an expensive shell process.
+
+<p>
+
+<li>Execute the command <b>postfix reload</b> to make the changes
+effective.
+
+</ul>
+
+Postfix exports information via environment variables. The contents
+are censored. Any characters that may have special meaning to the
+shell are replaced by underscores.
+
+<p>
+
+<dl>
+
+<dl>
+
+<dt><b>DOMAIN</b> <dd> The text to the right-hand side of the
+<b>@</b> in the recipient address.
+
+<dt><b>EXTENSION</b> <dd> Optional address extension part.
+
+<dt><b>HOME</b> <dd> The recipient's home directory.
+
+<dt><b>LOCAL</b> <dd> The text to the left-hand side of the <b>@</b>
+in the recipient address, for example, <b>$USER+$EXTENSION</b>.
+
+<dt><b>LOGNAME</b> <dd> The recipient username.
+
+<dt><b>RECIPIENT</b> <dd> The entire recipient address,
+<b>$LOCAL@$DOMAIN</b>.
+
+<dt><b>SHELL</b> <dd> The recipient's login shell.
+
+<dt><b>USER</b> <dd> The recipient username.
+
+</dl>
+
+</dl>
+
+<hr>
+
+<a name="verbose"><h2>Postfix breaks "sendmail -v"</h2> </a>
+
+Some people will complain that <b>sendmail -v</b> no longer shows
+the actual mail delivery.
+
+<p>
+
+With a distributed mail system such as Postfix, this is difficult
+to implement. Postfix does not run any mail delivery process under
+control by a user. Instead, mail delivery is done by daemon processes
+that have no parental relationship with user processes.  This
+eliminates a large variety of potential security exploits with
+environment variables, signal handlers, and with other process
+attributes that UNIX passes on from parent to child.
+
+<p>
+
+In addition, Postfix uses multiple processes in order to insulate
+subsystems from each other.  Making the delivery agents talk directly
+to user processes would defeat a lot of the effort that went into
+making Postfix more secure than ordinary mailers.
+
+<hr>
+
+<a name="delivered"><h2>Getting rid of Delivered-To:</h2> </a>
+
+Some people will complain about the ugly <b>Delivered-To:</b>
+message header that Postfix prepends to their mail.  By default,
+Postfix prepends this header when forwarding mail, and when delivering
+to file (mailbox) or command. The purpose is to stop mail forwarding
+loops as early as possible, that is, before they have a chance to
+happen.  But the header is ugly, no question about it.
+
+<p>
+
+Solutions, ranging from fighting symptoms to turning off the
+<b>Delivered-To:</b> header:
+
+<p>
+
+<ul>
+
+<li>
+
+Fortunately, many mail user agents have per-user or even system-wide
+configuration files that can be set up to suppress specific message
+headers (for example <b>~/.mailrc</b> and <b>/usr/lib/Mail.rc</b>).
+
+<p>
+
+<li>
+
+With mailing lists, <b>Delivered-To:</b> can get in the way when
+the list exploder uses a "secret" alias that should not be shown
+in outbound mail. The recommended solution is to use a regular
+expression-based filter at the SMTP port:
+
+<p>
+
+<dl>
+
+<dt><b>/etc/postfix/main.cf:</b>
+
+<dl>
+
+<dt><tt>smtpd_recipient_restrictions = ... regexp:/etc/postfix/access_regexp ...</tt>
+
+<dt><tt>smtpd_recipient_restrictions = ... pcre:/etc/postfix/access_regexp ...</tt>
+
+</dl>
+
+<p>
+
+<dt><b>/etc/postfix/access_regexp:</b>
+
+<dl>
+   
+<dt><tt>/^(.*)-outgoing@(.*)/	554 Use $1@$2 instead</tt>
+
+</dl>
+
+</dl>
+
+<p>
+
+POSIX regular expression support (regexp) is enabled by default on
+modern UNIX systems. Perl-compatible regular expression support
+(pcre) is optional; see the PCRE_README file in the top-level
+Postfix source directory.
+
+<p>
+
+<li>
+
+The <b>prepend_delivered_header</b> configuration parameter controls
+when <b>Delivered-To:</b> is prepended. The default setting is
+<b>command, file, forward</b>.  <i>Turning off <b>Delivered-To:</b>
+when forwarding mail is not recommended</i>.
+
+</ul>
+
+<p>
+
+See also the FAQ item for problems with the <b>majordomo</b> <a
+href="#approve">approve</a> command.
+
+<hr>
+
+<a name="approve"><h2>Postfix breaks the majordomo "approve"
+command</h2> </a>
+
+The Postfix local delivery agent prepends a <b>Delivered-To:</b>
+message header to prevent mail forwarding loops.  With <b>majordomo</b>
+mailing lists, <b>Delivered-To:</b> gets in the way when the
+moderator wants to approve postings that were sent to the list.
+The Postfix system claims that the mail is looping.
+
+<p>
+
+Currently, the workaround is to edit the <b>approve</b> script to
+strip any header lines that match:
+
+<p>
+
+<dl>
+
+<dd><b>/delivered-to/i</b>
+
+</dl>
+
+<p>
+
+Yes, this assumes that the moderator knows what she is doing.
+
+<hr>
+
+<a name="uucp"><h2>Setting up an Internet to UUCP gateway</h2> </a>
+
+Here is how to set up a machine that sends <i>some</i> but not all
+mail via UUCP. See the <a href="#uucp-only">UUCP-only</a> FAQ entry
+for setting a UUCP-only host.
+
+<p>
+
+<ul>
+
+<li>Make an entry in <b>/etc/postfix/transport</b>:
+
+<p>
+
+<dl>
+
+<dd><i>some.domain</i> &nbsp; <b>uucp:</b><i>uucp-host</i>
+
+</dl>
+
+<p>
+
+This causes all mail for the <i>some.domain</i> (and subdomains
+thereof) to be sent via UUCP to the host <i>uucp-host</i>.
+
+<p>
+
+<li>Execute the command <b>postmap /etc/postfix/transport</b> whenever
+you change the <b>transport</b> file.
+
+<p>
+
+<li>You need an entry in <b>/etc/postfix/master.cf</b>:
+
+<pre>
+    uucp      unix  -       n       n       -       -       pipe
+      flags=F user=uucp argv=uux -r -n -z -a$sender - $nexthop!rmail ($recipient)
+</pre>
+
+<p>
+
+This runs the <b>uux</b> command, and substitutes the next-hop
+hostname (<i>uucp-host</i>) and the recipients before executing
+the command.  The <b>uux</b> command is executed without assistance
+from the shell, so there are no problems with shell meta characters.
+
+<p>
+
+<li>Edit <b>/etc/postfix/main.cf</b> and enable <b>transport</b>
+table lookups:
+
+<p>
+
+<dl>
+
+<dd><b>transport_maps = hash:/etc/postfix/transport</b>
+
+</dl>
+
+<p>
+
+Specify <B>dbm</b> instead of <b>hash</b> if your system has no
+<b>db</b> support.
+
+<p>
+
+<li>Edit <b>/etc/postfix/main.cf</b> and add <i>some.domain</i> to
+the list of domains that your site is willing to relay mail for.
+See the <a href="uce.html#relay_domains">relay_domains</a>
+configuration parameter.
+
+<p>
+
+<li>Execute the command <b>postfix reload</b> to make the
+changes effective.
+
+</ul>
+
+<hr>
+
+<a name="uucp-only"><h2>Using UUCP as the default transport</h2> </a>
+
+Here is how to relay all your mail over a UUCP link.  See the <a
+href="#uucp">Internet to UUCP</a> FAQ entry for setting up a machine
+that gateways between UUCP and SMTP.
+
+<p>
+
+<ul>
+
+<li>There is no need for a <b>transport</b> table.
+
+<p>
+
+<li>In <b>/etc/postfix/main.cf</b>, specify the name of your
+UUCP gateway host, and specify that all mail must be sent
+via the <b>uucp</b> message transport:
+
+<p>
+
+<dl>
+
+<dd><b>relayhost = </b><i>uucp-gateway</i>
+
+<dd><b>default_transport = uucp</b>
+
+</dl>
+
+<p>
+
+<li>You need an entry in <b>/etc/postfix/master.cf</b>:
+
+<pre>
+    uucp      unix  -       n       n       -       -       pipe
+      flags=F user=uucp argv=uux -r -n -z -a$sender - $nexthop!rmail ($recipient)
+</pre>
+
+This runs the <b>uux</b> command, and substitutes the next-hop
+hostname (<i>uucp-gateway</i>, or whatever you specified) and the
+recipients before executing the command.  The <b>uux</b> command
+is executed without assistance from the shell, so there are no
+problems with shell meta characters.
+
+<p>
+
+<li>Execute the command <b>postfix reload</b> to make the
+changes effective.
+
+</ul>
+
+<hr>
+
+<a name="fax"><h2>Sending mail to a FAX machine</h2></a>
+
+The following information is by Joerg Henne:
+
+<p>
+Over here we are using the scheme <fax number>@fax.our.domain with Postfix and
+HylaFax. Here's the setup used:
+
+<p>
+In master.cf:
+
+<p>
+
+<pre>
+    fax       unix  -       n       n       -       -       pipe
+	flags= user=fax argv=/usr/bin/faxmail -d -n ${user}
+</pre>
+
+<p>
+
+In the transports map:
+
+<p>
+
+<pre>
+    fax.your.domain   fax:localhost
+</pre>
+
+<p>
+
+Note: be sure to not advertise <b>fax.your.domain</b> in the DNS...
+
+<hr>
+
+<a name="timeouts"><h2>Mail fails with timeout or lost connection</h2></a>
+
+Occasionally, mail fails with "timed out while sending end of data
+-- message may be sent more than once", or with: "lost connection after DATA". 
+Network outages happen, systems crash. There isn't much you can
+do about it.
+
+<p>
+
+However, when you see mail deliveries fail consistently, you may
+have a different problem: broken path MTU discovery.
+
+<p>
+
+A little background is in order. With the SMTP protocol, the HELO,
+MAIL FROM and RCPT TO commands and responses are relatively short.
+When you're talking to sendmail, every command and every response
+is sent as a separate packet, because sendmail cannot implement
+ESMTP command pipelining.
+
+<p>
+
+The message content, however, is sent as a few datagrams, each
+datagram typically a kbyte large or even bigger, depending on your
+local network MTU.
+
+<p>
+
+When mail fails consistently due to a timeout, I suspect that the
+sending machine runs a modern UNIX which implements path MTU
+discovery.  That causes the machine to send packets as large as it
+would send over the LAN, with the IP DONT'T FRAGMENT bit set,
+preventing intermediate routers from fragmenting the packets that
+are too big for their networks.
+
+<p>
+
+Depending on what network path a message follows, some router on
+the way responds with an ICMP MUST FRAGMENT message saying the
+packet is too big. Normally, the sending machine will re-send the
+data after chopping it up into smaller pieces.
+
+<p>
+
+However, things break when some router closer to the sending system
+is dropping such ICMP feedback messages, in a mistaken attempt to
+protect systems against certain attacks. In that case, the ICMP
+feedback message never reaches the sending machine, and the connection
+times out.
+
+<p>
+
+This is the same configuration problem that causes trouble with
+web servers behind a misconfigured packet filter: small images/files
+are sent intact, large images/files time out because the server
+does not see the MUST FRAGMENT ICMP feedback messages.
+
+<p>
+
+Workaround: disable path MTU discovery at the sending machine. Mail
+will get out, but of course everyone else will still suffer. How
+to disable path MTU discovery? It depends. Solaris has an <b>ndd</b>
+command; other systems use different means such as <b>sysctl</b>
+to control kernel parameters on a running system.
+
+<p>
+
+Fix: find the router that drops the ICMP MUST FRAGMENT messages,
+and convince the person responsible for it to fix the configuration.
+
+<hr>
+
+<a name="bind"><h2>Undefined symbols: ___dn_expand, ___res_init etc.</h2></a>
+
+Question: When I build Postfix I get the following errors:
+
+<p>
+
+<pre>
+    ld: Undefined symbol
+       ___dn_expand
+       ___res_init
+       ___res_search
+    *** Error code 1
+</pre>
+
+<p>
+
+Answer: you're mixing BIND version 8 include files with a
+different version of the resolver library. 
+
+<p>
+
+Fix: use the right include files. For example: 
+
+<p>
+
+<pre>
+    <tt>make makefiles CCARGS="-I/usr/include"</tt>.
+</pre>
+
+<hr>
+
+<a name="db"><h2>Using DB libraries on Solaris etc.</h2> </a>
+
+The old <b>dbm</b> UNIX database has severe limitations when you
+try to store lots of information. It breaks when the number of hash
+collisions becomes so large that the entries no longer fit together
+in a single disk block.  The more modern <b>db</b> database does
+not suffer these limitations. It is standard on 4.4BSD and Linux
+systems.
+
+<p>
+
+In order to build Postfix with <b>db</b> support on UNIX systems
+that do not have <b>db</b> support out of the box, you need the
+db-1.85 release, or <a href="http://www.sleepycat.com">the current 
+version</a> which has a db-1.85 compatible interface.
+
+<p>
+
+Use the following commands in the Postfix top-level directory.
+The LD_LIBRARY_PATH unset commands may be required to avoid linking
+in the wrong libraries.
+
+<dl>
+
+<dd>% <tt>LD_LIBRARY_PATH= </tt> &nbsp <i>(Bourne-shell syntax)</i>
+
+<dd>% <tt>unsetenv LD_LIBRARY_PATH </tt> &nbsp <i>(C-shell syntax)</i>
+
+<dd>% <tt>make tidy</tt>
+
+<dd>% <tt>make makefiles CCARGS="-DHAS_DB -DPATH_DB_H='&lt;db_185.h&gt;'
+-I</tt><i>/some/where/include</i><tt>" 
+AUXLIBS=</tt><i>/some/where/libdb.a</i>
+
+<dd>% <tt>make</tt>
+
+</dl>
+
+<p>
+
+Of course you will have to specify the actual location of the
+include directory and of the object library.
+
+<p>
+
+One problem: older DB versions install a file <b>/usr/include/ndbm.h</b>
+that is incompatible with the one in <b>/usr/include</b>. Be sure
+to get rid of the bogus file, or the linker will fail to find
+<b>dbm_dirfno</b>.
+
+<hr>
+
+<a href="index.html">Up one level</a> | Postfix FAQ
+
+</body>
+
+</html>
