@@ -6,6 +6,9 @@
 PATH=/bin:/usr/bin:/usr/sbin:/usr/etc:/sbin:/etc
 umask 022
 
+# Workaround, should edit main.cf in place.
+trap 'rm -f ./main.cf; exit 1' 0 1 2 3 15
+
 cat <<EOF
 
 Warning: this script replaces existing sendmail or Postfix programs.
@@ -138,7 +141,10 @@ do
    esac
 done
 
-bin/postmap -q "$owner" unix:passwd.byname >/dev/null || {
+# Workaround, should edit main.cf in place.
+echo "mail_owner = $owner" >./main.cf
+
+bin/postmap -c . -q "$owner" unix:passwd.byname >/dev/null || {
     echo "$owner needs an entry in the passwd file" 1>&2
     echo "Remember, $owner must have a dedicated user id and group id." 1>&2
     exit 1
@@ -146,7 +152,7 @@ bin/postmap -q "$owner" unix:passwd.byname >/dev/null || {
 
 case $setgid in
 no) ;;
- *) bin/postmap -q "$setgid" unix:group.byname >/dev/null || {
+ *) bin/postmap -c . -q "$setgid" unix:group.byname >/dev/null || {
 	echo "$setgid needs an entry in the group file" 1>&2
 	echo "Remember, $setgid must have a dedicated group id." 1>&2
 	exit 1
@@ -199,7 +205,7 @@ test -f $config_directory/main.cf || {
 	s;^daemon_directory .*;daemon_directory = $daemon_directory;
 	s;^command_directory .*;command_directory = $command_directory;
 	s;^queue_directory .*;queue_directory = $queue_directory;
-	s;^mail_owner .*;mail_owner = $mail_owner;
+	s;^mail_owner .*;mail_owner = $owner;
     " conf/main.cf >$config_directory/main.cf || exit 1
 
     echo "Warning: you still need to edit myorigin/mydestination in" 1>&2

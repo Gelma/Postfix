@@ -3126,3 +3126,17 @@ Apologies for any names omitted.
 
 	Bugfix: LDAP lookup timeout settings were ignored. Patch
 	by John Hensley. File: util/dict_ldap.c.
+
+19991108
+
+	Bugfix: when doing a fresh install, INSTALL.sh didn't set
+	main.cf:mail_owner properly (Simon J. Mudd).
+
+19991109
+
+	Bugfix: when doing a fresh install, INSTALL.sh no longer
+	worked (missing main.cf file).  Fix: add "-c" argument to
+	the postmap commands (Lars Hecking @ nmrc.ucc.ie).
+
+	Documentation: removed spurious "do not edit" comments from
+	the sample pcre and regexp configuration files.
