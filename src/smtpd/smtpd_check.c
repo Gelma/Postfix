@@ -24,6 +24,10 @@
 /*	SMTPD_STATE *state;
 /*	char	*recipient;
 /*
+/*	char	*smtpd_check_rcptmap(state, recipient)
+/*	SMTPD_STATE *state;
+/*	char	*recipient;
+/*
 /*	char	*smtpd_check_etrn(state, destination)
 /*	SMTPD_STATE *state;
 /*	char	*destination;
@@ -141,9 +145,10 @@
 /*	Reject the request when the client has already sent the next request
 /*	without being told that the server implements SMTP command pipelining.
 /* .IP permit_mx_backup
-/*	Allow the request when the local mail system is mail exchanger
-/*	for the recipient domain (this includes the case where the local
-/*	system is the final destination).
+/*	Allow the request when all primary MX hosts for the recipient
+/*	are in the networks specified with the $permit_mx_backup_networks
+/*	configuration parameter, or when the local system is the final
+/*	destination.
 /* .IP restriction_classes
 /*	Defines a list of parameter names, each parameter being a list
 /*	of restrictions that can be used anywhere a restriction is legal.
@@ -171,6 +176,12 @@
 /* .IP smtpd_recipient_restrictions
 /*	Restrictions on the recipient address that is sent with the RCPT
 /*	TO command.
+/* .PP
+/*	smtpd_check_rcptmap() validates the recipient address provided
+/*	with an RCPT TO request. Relevant configuration parameters:
+/* .IP local_recipients_map
+/*	Tables of user names (not addresses) that exist in $mydestination.
+/*	Mail for local users not in these tables is rejected.
 /* .PP
 /*	smtpd_check_etrn() validates the domain name provided with the
 /*	ETRN command, and other client-provided information. Relevant
@@ -259,6 +270,7 @@
 #include <mymalloc.h>
 #include <dict.h>
 #include <htable.h>
+#include <ctable.h>
 
 /* DNS library. */
 
@@ -277,6 +289,8 @@
 #include <mail_conf.h>
 #include <maps.h>
 #include <mail_addr_find.h>
+#include <match_parent_style.h>
+#include <split_addr.h>
 
 /* Application-specific. */
 
@@ -297,12 +311,16 @@ static jmp_buf smtpd_check_buf;
 #define SMTPD_CHECK_REJECT	2	/* explicitly reject */
 
  /*
+  * XXX For now define SMTPD_CHECK_TRYAGAIN as SMTPD_CHECK_OK.
+  */
+#define SMTPD_CHECK_TRYAGAIN	1	/* return 4xx try again */
+
+ /*
   * Intermediate results. These are static to avoid unnecessary stress on the
   * memory manager routines.
   */
-static RESOLVE_REPLY reply;
-static VSTRING *query;
 static VSTRING *error_text;
+static CTABLE *smtpd_resolve_cache;
 
  /*
   * Pre-opened SMTP recipient maps so we can reject mail for unknown users.
@@ -313,13 +331,25 @@ static MAPS *local_rcpt_maps;
 static MAPS *rcpt_canon_maps;
 static MAPS *canonical_maps;
 static MAPS *virtual_maps;
+static MAPS *virt_mailbox_maps;
 static MAPS *relocated_maps;
+
+ /*
+  * Pre-opened sender to login name mapping.
+  */
+static MAPS *smtpd_sender_login_maps;
 
  /*
   * Pre-opened access control lists.
   */
 static DOMAIN_LIST *relay_domains;
 static NAMADR_LIST *mynetworks;
+static NAMADR_LIST *perm_mx_networks;
+
+ /*
+  * How to do parent domain wildcard matching, if any.
+  */
+static int access_parent_style;
 
  /*
   * Pre-parsed restriction lists.
@@ -335,7 +365,7 @@ static HTABLE *smtpd_rest_classes;
  /*
   * The routine that recursively applies restrictions.
   */
-static int generic_checks(SMTPD_STATE *, ARGV *, char *, char *, char *);
+static int generic_checks(SMTPD_STATE *, ARGV *, const char *, const char *, const char *);
 
  /*
   * Reject context.
@@ -350,6 +380,49 @@ static int generic_checks(SMTPD_STATE *, ARGV *, char *, char *, char *);
   * YASLM.
   */
 #define STR	vstring_str
+#define CONST_STR(x)	((const char *) vstring_str(x))
+
+/* resolve_pagein - page in an address resolver result */
+
+static void *resolve_pagein(const char *addr, void *unused_context)
+{
+    static VSTRING *query;
+    RESOLVE_REPLY *reply;
+
+    /*
+     * Initialize on the fly.
+     */
+    if (query == 0)
+	query = vstring_alloc(10);
+
+    /*
+     * Initialize.
+     */
+    reply = (RESOLVE_REPLY *) mymalloc(sizeof(*reply));
+    resolve_clnt_init(reply);
+
+    /*
+     * Resolve the address.
+     */
+    canon_addr_internal(query, addr);
+    resolve_clnt_query(STR(query), reply);
+    lowercase(STR(reply->recipient));
+
+    /*
+     * Save the result.
+     */
+    return ((void *) reply);
+}
+
+/* resolve_pageout - page out an address resolver result */
+
+static void resolve_pageout(void *data, void *unused_context)
+{
+    RESOLVE_REPLY *reply = (RESOLVE_REPLY *) data;
+
+    resolve_clnt_free(reply);
+    myfree((void *) reply);
+}
 
 /* smtpd_check_parse - pre-parse restrictions */
 
@@ -391,6 +464,10 @@ static int has_required(ARGV *restrictions, char **required)
      * Recursively check list membership.
      */
     for (rest = restrictions->argv; *rest; rest++) {
+	if (strcmp(*rest, WARN_IF_REJECT) == 0 && rest[1] != 0) {
+	    rest += 1;
+	    continue;
+	}
 	for (reqd = required; *reqd; reqd++)
 	    if (strcmp(*rest, *reqd) == 0)
 		return (1);
@@ -420,8 +497,9 @@ static void fail_required(char *name, char **required)
      */
     example = vstring_alloc(10);
     for (reqd = required; *reqd; reqd++)
-	vstring_sprintf_append(example, "%s ", *reqd);
-    msg_fatal("parameter \"%s\": specify at least one explicit instance of: %s",
+	vstring_sprintf_append(example, "%s%s", *reqd,
+			  reqd[1] == 0 ? "" : reqd[2] == 0 ? " or " : ", ");
+    msg_fatal("parameter \"%s\": specify at least one working instance of: %s",
 	      name, STR(example));
 }
 
@@ -443,8 +521,15 @@ void    smtpd_check_init(void)
     /*
      * Pre-open access control lists before going to jail.
      */
-    mynetworks = namadr_list_init(var_mynetworks);
-    relay_domains = domain_list_init(var_relay_domains);
+    mynetworks =
+	namadr_list_init(match_parent_style(VAR_MYNETWORKS),
+			 var_mynetworks);
+    relay_domains =
+	domain_list_init(match_parent_style(VAR_RELAY_DOMAINS),
+			 var_relay_domains);
+    perm_mx_networks =
+	namadr_list_init(match_parent_style(VAR_PERM_MX_NETWORKS),
+			 var_perm_mx_networks);
 
     /*
      * Pre-parse and pre-open the recipient maps.
@@ -457,16 +542,30 @@ void    smtpd_check_init(void)
 				 DICT_FLAG_LOCK);
     virtual_maps = maps_create(VAR_VIRTUAL_MAPS, var_virtual_maps,
 			       DICT_FLAG_LOCK);
+    virt_mailbox_maps = maps_create(VAR_VIRT_MAILBOX_MAPS, var_virt_mailbox_maps,
+				    DICT_FLAG_LOCK);
     relocated_maps = maps_create(VAR_RELOCATED_MAPS, var_relocated_maps,
 				 DICT_FLAG_LOCK);
 
+    access_parent_style = match_parent_style(SMTPD_ACCESS_MAPS);
+
     /*
-     * Reply is used as a cache for resolved addresses, and error_text is
-     * used for returning error responses.
+     * Sender to login name mapping.
      */
-    resolve_clnt_init(&reply);
-    query = vstring_alloc(10);
+    smtpd_sender_login_maps = maps_create(VAR_SMTPD_SND_AUTH_MAPS,
+					  var_smtpd_snd_auth_maps,
+					  DICT_FLAG_LOCK);
+
+    /*
+     * error_text is used for returning error responses.
+     */
     error_text = vstring_alloc(10);
+
+    /*
+     * Initialize the resolved address cache.
+     */
+    smtpd_resolve_cache = ctable_create(100, resolve_pagein,
+					resolve_pageout, (void *) 0);
 
     /*
      * Pre-parse the restriction lists. At the same time, pre-open tables
@@ -518,6 +617,20 @@ static int smtpd_check_reject(SMTPD_STATE *state, int error_class,
 			              char *format,...)
 {
     va_list ap;
+    int     warn_if_reject;
+    const char *whatsup;
+
+    /*
+     * Do not reject mail if we were asked to warn only. However,
+     * configuration errors cannot be converted into warnings.
+     */
+    if (state->warn_if_reject && error_class != MAIL_ERROR_SOFTWARE) {
+	warn_if_reject = 1;
+	whatsup = "reject_warning";
+    } else {
+	warn_if_reject = 0;
+	whatsup = "reject";
+    }
 
     /*
      * Update the error class mask, and format the response. XXX What about
@@ -542,27 +655,109 @@ static int smtpd_check_reject(SMTPD_STATE *state, int error_class,
     printable(STR(error_text), ' ');
 
     /*
+     * XXX The code below also appears in the SMTP server reply output
+     * routine. It is duplicated here in order to avoid discrepancies between
+     * the reply codes that are shown in "reject" logging and the reply codes
+     * that are actually sent to the SMTP client.
+     * 
+     * Implementing the soft_bounce safety net in the SMTP server reply output
+     * routine has the advantage that it covers all 5xx replies, including
+     * SMTP protocol or syntax errors, which makes soft_bounce great for
+     * non-destructive tests (especially by people who are paranoid about
+     * losing mail).
+     * 
+     * We could eliminate the code duplication and implement the soft_bounce
+     * safety net only in the code below. But then the safety net would cover
+     * the UCE restrictions only. This would be at odds with documentation
+     * which says soft_bounce changes all 5xx replies into 4xx ones.
+     */
+    if (var_soft_bounce && STR(error_text)[0] == '5')
+	STR(error_text)[0] = '4';
+
+    /*
      * Log what is happening. When the sysadmin discards policy violation
      * postmaster notices, this may be the only trace left that service was
      * rejected. Print the request, client name/address, and response.
      */
     if (state->recipient && state->sender) {
-	msg_info("reject: %s from %s: %s; from=<%s> to=<%s>",
-		 state->where, state->namaddr, STR(error_text),
+	msg_info("%s: %s from %s: %s; from=<%s> to=<%s>",
+		 whatsup, state->where, state->namaddr, STR(error_text),
 		 state->sender, state->recipient);
     } else if (state->recipient) {
-	msg_info("reject: %s from %s: %s; to=<%s>",
-		 state->where, state->namaddr, STR(error_text),
+	msg_info("%s: %s from %s: %s; to=<%s>",
+		 whatsup, state->where, state->namaddr, STR(error_text),
 		 state->recipient);
     } else if (state->sender) {
-	msg_info("reject: %s from %s: %s; from=<%s>",
-		 state->where, state->namaddr, STR(error_text),
+	msg_info("%s: %s from %s: %s; from=<%s>",
+		 whatsup, state->where, state->namaddr, STR(error_text),
 		 state->sender);
     } else {
-	msg_info("reject: %s from %s: %s",
-		 state->where, state->namaddr, STR(error_text));
+	msg_info("%s: %s from %s: %s",
+		 whatsup, state->where, state->namaddr, STR(error_text));
     }
-    return (SMTPD_CHECK_REJECT);
+    return (warn_if_reject ? 0 : SMTPD_CHECK_REJECT);
+}
+
+/* reject_dict_retry - reject with temporary failure if dict lookup fails */
+
+static void reject_dict_retry(SMTPD_STATE *state, const char *reply_name)
+{
+    longjmp(smtpd_check_buf, smtpd_check_reject(state, MAIL_ERROR_RESOURCE,
+					"%d <%s>: Temporary lookup failure",
+						451, reply_name));
+}
+
+/* check_maps_find - reject with temporary failure if dict lookup fails */
+
+static const char *check_maps_find(SMTPD_STATE *state, const char *reply_name,
+			             MAPS *maps, const char *key, int flags)
+{
+    const char *result;
+
+    dict_errno = 0;
+    if ((result = maps_find(maps, key, flags)) == 0
+	&& dict_errno == DICT_ERR_RETRY)
+	reject_dict_retry(state, reply_name);
+    return (result);
+}
+
+/* check_mail_addr_find - reject with temporary failure if dict lookup fails */
+
+static const char *check_mail_addr_find(SMTPD_STATE *state,
+					        const char *reply_name,
+					        MAPS *maps, const char *key,
+					        char **ext)
+{
+    const char *result;
+
+    dict_errno = 0;
+    if ((result = mail_addr_find(maps, key, ext)) == 0
+	&& dict_errno == DICT_ERR_RETRY)
+	reject_dict_retry(state, reply_name);
+    return (result);
+}
+
+/* resolve_final - do we do final delivery for the domain? */
+
+static int resolve_final(SMTPD_STATE *state, const char *reply_name, 
+const char *domain)
+{
+
+    /* If matches $mydestination or $inet_interfaces. */
+    if (resolve_local(domain))
+	return (1);
+
+    /* If Postfix-style virtual domain. */
+    if (*var_virtual_maps
+	&& check_maps_find(state, reply_name, virtual_maps, domain, 0))
+	return (1);
+
+    /* If virtual mailbox domain. */
+    if (*var_virt_mailbox_maps
+	&& check_maps_find(state, reply_name, virt_mailbox_maps, domain, 0))
+	return (1);
+
+    return (0);
 }
 
 /* reject_unknown_client - fail if client hostname is unknown */
@@ -749,8 +944,8 @@ static int reject_unknown_hostname(SMTPD_STATE *state, char *name,
 
 /* reject_unknown_mailhost - fail if name has no A or MX record */
 
-static int reject_unknown_mailhost(SMTPD_STATE *state, char *name,
-				        char *reply_name, char *reply_class)
+static int reject_unknown_mailhost(SMTPD_STATE *state, const char *name,
+		            const char *reply_name, const char *reply_class)
 {
     char   *myname = "reject_unknown_mailhost";
     int     dns_status;
@@ -769,7 +964,7 @@ static int reject_unknown_mailhost(SMTPD_STATE *state, char *name,
     return (SMTPD_CHECK_DUNNO);
 }
 
-static int permit_auth_destination(char *recipient);
+static int permit_auth_destination(SMTPD_STATE *state, char *recipient);
 
 /* check_relay_domains - OK/FAIL for message relaying */
 
@@ -790,7 +985,7 @@ static int check_relay_domains(SMTPD_STATE *state, char *recipient,
     /*
      * Permit authorized destinations.
      */
-    if (permit_auth_destination(recipient) == SMTPD_CHECK_OK)
+    if (permit_auth_destination(state, recipient) == SMTPD_CHECK_OK)
 	return (SMTPD_CHECK_OK);
 
     /*
@@ -803,10 +998,11 @@ static int check_relay_domains(SMTPD_STATE *state, char *recipient,
 
 /* permit_auth_destination - OK for message relaying */
 
-static int permit_auth_destination(char *recipient)
+static int permit_auth_destination(SMTPD_STATE *state, char *recipient)
 {
     char   *myname = "permit_auth_destination";
-    char   *domain;
+    const RESOLVE_REPLY *reply;
+    const char *domain;
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, recipient);
@@ -814,29 +1010,27 @@ static int permit_auth_destination(char *recipient)
     /*
      * Resolve the address.
      */
-    canon_addr_internal(query, recipient);
-    resolve_clnt_query(STR(query), &reply);
-    lowercase(STR(reply.recipient));
+    reply = (const RESOLVE_REPLY *)
+	ctable_locate(smtpd_resolve_cache, recipient);
 
     /*
      * Handle special case that is not supposed to happen.
      */
-    if ((domain = strrchr(STR(reply.recipient), '@')) == 0)
+    if ((domain = strrchr(CONST_STR(reply->recipient), '@')) == 0)
 	return (SMTPD_CHECK_OK);
     domain += 1;
 
     /*
-     * Permit final delivery: the destination matches mydestination or
-     * virtual_maps.
+     * Permit final delivery: the destination matches mydestination, 
+     * virtual_maps, or virtual_mailbox_maps.
      */
-    if (resolve_local(domain)
-	|| (*var_virtual_maps && maps_find(virtual_maps, domain, 0)))
+    if (resolve_final(state, recipient, domain))
 	return (SMTPD_CHECK_OK);
 
     /*
      * Skip source-routed mail (uncertain destination).
      */
-    if (var_allow_untrust_route == 0 && (reply.flags & RESOLVE_FLAG_ROUTED))
+    if (var_allow_untrust_route == 0 && (reply->flags & RESOLVE_FLAG_ROUTED))
 	return (SMTPD_CHECK_DUNNO);
 
     /*
@@ -863,7 +1057,7 @@ static int reject_unauth_destination(SMTPD_STATE *state, char *recipient)
     /*
      * Skip authorized destination.
      */
-    if (permit_auth_destination(recipient) == SMTPD_CHECK_OK)
+    if (permit_auth_destination(state, recipient) == SMTPD_CHECK_OK)
 	return (SMTPD_CHECK_DUNNO);
 
     /*
@@ -893,9 +1087,63 @@ static int reject_unauth_pipelining(SMTPD_STATE *state)
     return (SMTPD_CHECK_DUNNO);
 }
 
+/* all_auth_mx_addr - match host addresses against permit_mx_backup_networks */
+
+static int all_auth_mx_addr(char *host)
+{
+    char   *myname = "all_auth_mx_addr";
+    struct in_addr addr;
+    DNS_RR *rr;
+    DNS_RR *addr_list;
+    int     dns_status;
+
+    if (msg_verbose)
+	msg_info("%s: host %s", myname, host);
+
+    /*
+     * If we can't lookup the host, try again.
+     */
+#define NOPE           0
+#define YUP            1
+#define TRYAGAIN       2
+
+    /*
+     * Verify that all host addresses are within permit_mx_backup_networks.
+     */
+    dns_status = dns_lookup(host, T_A, 0, &addr_list, (VSTRING *) 0, (VSTRING *) 0);
+    if (dns_status != DNS_OK)
+	return (TRYAGAIN);
+
+    for (rr = addr_list; rr != 0; rr = rr->next) {
+	if (rr->data_len > sizeof(addr)) {
+	    msg_warn("skipping address length %d for host %s",
+		     rr->data_len, host);
+	    continue;
+	}
+	memcpy((char *) &addr, rr->data, sizeof(addr));
+	if (msg_verbose)
+	    msg_info("%s: checking: %s", myname, inet_ntoa(addr));
+
+	if (!namadr_list_match(perm_mx_networks, host, inet_ntoa(addr))) {
+
+	    /*
+	     * Reject: at least one IP address is not listed in
+	     * permit_mx_backup_networks.
+	     */
+	    if (msg_verbose)
+		msg_info("%s: address %s for %s does not match %s",
+		       myname, inet_ntoa(addr), host, VAR_PERM_MX_NETWORKS);
+	    dns_rr_free(addr_list);
+	    return (NOPE);
+	}
+    }
+    dns_rr_free(addr_list);
+    return (YUP);
+}
+
 /* has_my_addr - see if this host name lists one of my network addresses */
 
-static int has_my_addr(char *host)
+static int has_my_addr(const char *host)
 {
     char   *myname = "has_my_addr";
     struct in_addr addr;
@@ -934,15 +1182,87 @@ static int has_my_addr(char *host)
     return (NOPE);
 }
 
+/* i_am_mx - is this machine listed as MX relay */
+
+static int i_am_mx(DNS_RR *mx_list)
+{
+    const char *myname = "permit_mx_backup";
+    DNS_RR *mx;
+
+    /*
+     * Compare hostnames first. Only if no name match is found, go through
+     * the trouble of host address lookups.
+     */
+    for (mx = mx_list; mx != 0; mx = mx->next) {
+	if (msg_verbose)
+	    msg_info("%s: resolve hostname: %s", myname, (char *) mx->data);
+	if (resolve_local((char *) mx->data))
+	    return (YUP);
+    }
+
+    /*
+     * Argh. Do further DNS lookups and match interface addresses.
+     */
+    for (mx = mx_list; mx != 0; mx = mx->next) {
+	if (msg_verbose)
+	    msg_info("%s: address lookup: %s", myname, (char *) mx->data);
+	if (has_my_addr((char *) mx->data))
+	    return (YUP);
+    }
+
+    /*
+     * This machine is not listed as MX relay.
+     */
+    if (msg_verbose)
+	msg_info("%s: I am not listed as MX relay", myname);
+    return (NOPE);
+}
+
+/* permit_mx_primary - authorize primary MX relays */
+
+static int permit_mx_primary(DNS_RR *mx_list)
+{
+    DNS_RR *mx;
+    unsigned int best_pref;
+    int     status;
+
+    /*
+     * Find the preference of the primary MX hosts.
+     */
+    for (best_pref = 0xffff, mx = mx_list; mx != 0; mx = mx->next)
+	if (mx->pref < best_pref)
+	    best_pref = mx->pref;
+
+    /*
+     * See if each best MX host has all IP addresses in
+     * permit_mx_backup_networks.
+     */
+    for (mx = mx_list; mx != 0; mx = mx->next) {
+	if (mx->pref != best_pref)
+	    continue;
+	switch (status = all_auth_mx_addr((char *) mx->data)) {
+	case TRYAGAIN:
+	case NOPE:
+	    return (status);
+	}
+    }
+
+    /*
+     * All IP addresses of the best MX hosts are within
+     * permit_mx_backup_networks.
+     */
+    return (YUP);
+}
+
 /* permit_mx_backup - permit use of me as MX backup for recipient domain */
 
-static int permit_mx_backup(SMTPD_STATE *unused_state, const char *recipient)
+static int permit_mx_backup(SMTPD_STATE *state, const char *recipient)
 {
     char   *myname = "permit_mx_backup";
-    char   *domain;
+    const RESOLVE_REPLY *reply;
+    const char *domain;
 
     DNS_RR *mx_list;
-    DNS_RR *mx;
     int     dns_status;
 
     if (msg_verbose)
@@ -951,19 +1271,17 @@ static int permit_mx_backup(SMTPD_STATE *unused_state, const char *recipient)
     /*
      * Resolve the address.
      */
-    canon_addr_internal(query, recipient);
-    resolve_clnt_query(STR(query), &reply);
-    lowercase(STR(reply.recipient));
+    reply = (const RESOLVE_REPLY *)
+	ctable_locate(smtpd_resolve_cache, recipient);
 
     /*
      * If the destination is local, it is acceptable, because we are
      * supposedly MX for our own address.
      */
-    if ((domain = strrchr(STR(reply.recipient), '@')) == 0)
+    if ((domain = strrchr(CONST_STR(reply->recipient), '@')) == 0)
 	return (SMTPD_CHECK_OK);
     domain += 1;
-    if (resolve_local(domain)
-	|| (*var_virtual_maps && maps_find(virtual_maps, domain, 0)))
+    if (resolve_final(state, recipient, domain))
 	return (SMTPD_CHECK_OK);
 
     if (msg_verbose)
@@ -972,7 +1290,7 @@ static int permit_mx_backup(SMTPD_STATE *unused_state, const char *recipient)
     /*
      * Skip source-routed mail (uncertain destination).
      */
-    if (var_allow_untrust_route == 0 && (reply.flags & RESOLVE_FLAG_ROUTED))
+    if (var_allow_untrust_route == 0 && (reply->flags & RESOLVE_FLAG_ROUTED))
 	return (SMTPD_CHECK_DUNNO);
 
     /*
@@ -993,37 +1311,30 @@ static int permit_mx_backup(SMTPD_STATE *unused_state, const char *recipient)
     if (dns_status == DNS_NOTFOUND)
 	return (has_my_addr(domain) ? SMTPD_CHECK_OK : SMTPD_CHECK_DUNNO);
     if (dns_status != DNS_OK)
-	return (SMTPD_CHECK_OK);
+	return (SMTPD_CHECK_TRYAGAIN);
 
     /*
-     * First, see if we match any of the MX host names listed. Only if no
-     * name match is found, go through the trouble of host address lookups.
+     * First, see if we match any of the MX host names listed.
      */
-    for (mx = mx_list; mx != 0; mx = mx->next) {
-	if (msg_verbose)
-	    msg_info("%s: resolve hostname: %s", myname, (char *) mx->data);
-	if (resolve_local((char *) mx->data)) {
-	    dns_rr_free(mx_list);
-	    return (SMTPD_CHECK_OK);
-	}
+    if (!i_am_mx(mx_list)) {
+	dns_rr_free(mx_list);
+	return (SMTPD_CHECK_DUNNO);
     }
 
     /*
-     * Argh. Do further DNS lookups and match interface addresses.
+     * Optionally, see if the primary MX hosts are in a restricted list of
+     * networks.
      */
-    for (mx = mx_list; mx != 0; mx = mx->next) {
-	if (msg_verbose)
-	    msg_info("%s: address lookup: %s", myname, (char *) mx->data);
-	if (has_my_addr((char *) mx->data)) {
-	    dns_rr_free(mx_list);
-	    return (SMTPD_CHECK_OK);
-	}
+    if (*var_perm_mx_networks && !permit_mx_primary(mx_list)) {
+	dns_rr_free(mx_list);
+	return (SMTPD_CHECK_DUNNO);
     }
-    if (msg_verbose)
-	msg_info("%s: no match", myname);
 
+    /*
+     * The destination passed all requirements.
+     */
     dns_rr_free(mx_list);
-    return (SMTPD_CHECK_DUNNO);
+    return (SMTPD_CHECK_OK);
 }
 
 /* reject_non_fqdn_address - fail if address is not in fqdn form */
@@ -1081,11 +1392,12 @@ static int reject_non_fqdn_address(SMTPD_STATE *state, char *addr,
 
 /* reject_unknown_address - fail if address does not resolve */
 
-static int reject_unknown_address(SMTPD_STATE *state, char *addr,
-				        char *reply_name, char *reply_class)
+static int reject_unknown_address(SMTPD_STATE *state, const char *addr,
+		            const char *reply_name, const char *reply_class)
 {
     char   *myname = "reject_unknown_address";
-    char   *domain;
+    const RESOLVE_REPLY *reply;
+    const char *domain;
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, addr);
@@ -1093,18 +1405,15 @@ static int reject_unknown_address(SMTPD_STATE *state, char *addr,
     /*
      * Resolve the address.
      */
-    canon_addr_internal(query, addr);
-    resolve_clnt_query(STR(query), &reply);
-    lowercase(STR(reply.recipient));
+    reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, addr);
 
     /*
      * Skip local destinations and non-DNS forms.
      */
-    if ((domain = strrchr(STR(reply.recipient), '@')) == 0)
+    if ((domain = strrchr(CONST_STR(reply->recipient), '@')) == 0)
 	return (SMTPD_CHECK_DUNNO);
     domain += 1;
-    if (resolve_local(domain)
-	|| (*var_virtual_maps && maps_find(virtual_maps, domain, 0)))
+    if (resolve_final(state, reply_name, domain))
 	return (SMTPD_CHECK_DUNNO);
     if (domain[0] == '#')
 	return (SMTPD_CHECK_DUNNO);
@@ -1119,14 +1428,16 @@ static int reject_unknown_address(SMTPD_STATE *state, char *addr,
 
 /* check_table_result - translate table lookup result into pass/reject */
 
-static int check_table_result(SMTPD_STATE *state, char *table,
+static int check_table_result(SMTPD_STATE *state, const char *table,
 			              const char *value, const char *datum,
-			              char *reply_name, char *reply_class,
-			              char *def_acl)
+			              const char *reply_name,
+			              const char *reply_class,
+			              const char *def_acl)
 {
     char   *myname = "check_table_result";
     int     code;
     ARGV   *restrictions;
+    jmp_buf savebuf;
     int     status;
 
     if (msg_verbose)
@@ -1150,7 +1461,7 @@ static int check_table_result(SMTPD_STATE *state, char *table,
      * All-numeric result probably means OK - some out-of-band authentication
      * mechanism uses this as time stamp.
      */
-    if (*value && value[strspn(value, "0123456789")] == 0)
+    if (alldig(value))
 	return (SMTPD_CHECK_OK);
 
     /*
@@ -1185,7 +1496,8 @@ static int check_table_result(SMTPD_STATE *state, char *table,
 		 table, value);
 	msg_warn("do not specify lookup tables inside SMTPD access maps");
 	msg_warn("define a restriction class and specify its name instead");
-	longjmp(smtpd_check_buf, -1);
+	longjmp(smtpd_check_buf, smtpd_check_reject(state, MAIL_ERROR_SOFTWARE,
+					 "451 Server configuration error"));
     }
 
     /*
@@ -1194,15 +1506,29 @@ static int check_table_result(SMTPD_STATE *state, char *table,
     if (state->recursion++ > 100) {
 	msg_warn("SMTPD access map %s entry %s causes unreasonable recursion",
 		 table, value);
-	longjmp(smtpd_check_buf, -1);
+	longjmp(smtpd_check_buf, smtpd_check_reject(state, MAIL_ERROR_SOFTWARE,
+					 "451 Server configuration error"));
     }
 
     /*
      * Recursively evaluate the restrictions given in the right-hand side. In
      * the dark ages, an empty right-hand side meant OK. Make some
      * discouraging comments.
+     * 
+     * XXX Jump some hoops to avoid a minute memory leak in case of a file
+     * configuration error.
      */
+#define ADDROF(x) ((char *) &(x))
+
     restrictions = argv_split(value, " \t\r\n,");
+    memcpy(ADDROF(savebuf), ADDROF(smtpd_check_buf), sizeof(savebuf));
+    status = setjmp(smtpd_check_buf);
+    if (status != 0) {
+	argv_free(restrictions);
+	memcpy(ADDROF(smtpd_check_buf), ADDROF(savebuf),
+	       sizeof(smtpd_check_buf));
+	longjmp(smtpd_check_buf, status);
+    }
     if (restrictions->argc == 0) {
 	msg_warn("SMTPD access map %s entry %s has empty value",
 		 table, value);
@@ -1217,17 +1543,20 @@ static int check_table_result(SMTPD_STATE *state, char *table,
 
 /* check_access - table lookup without substring magic */
 
-static int check_access(SMTPD_STATE *state, char *table, char *name, int flags,
-		         char *reply_name, char *reply_class, char *def_acl)
+static int check_access(SMTPD_STATE *state, const char *table, const char *name,
+		              int flags, int *found, const char *reply_name,
+			        const char *reply_class, const char *def_acl)
 {
     char   *myname = "check_access";
     char   *low_name = lowercase(mystrdup(name));
     const char *value;
     DICT   *dict;
 
-#define CHK_ACCESS_RETURN(x) { myfree(low_name); return(x); }
+#define CHK_ACCESS_RETURN(x,y) { *found = y; myfree(low_name); return(x); }
 #define FULL	0
 #define PARTIAL	DICT_FLAG_FIXED
+#define FOUND	1
+#define MISSED	0
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, name);
@@ -1238,19 +1567,20 @@ static int check_access(SMTPD_STATE *state, char *table, char *name, int flags,
 	if ((value = dict_get(dict, low_name)) != 0)
 	    CHK_ACCESS_RETURN(check_table_result(state, table, value, name,
 						 reply_name, reply_class,
-						 def_acl));
+						 def_acl), FOUND);
 	if (dict_errno != 0)
 	    msg_fatal("%s: table lookup problem", table);
     }
-    CHK_ACCESS_RETURN(SMTPD_CHECK_DUNNO);
+    CHK_ACCESS_RETURN(SMTPD_CHECK_DUNNO, MISSED);
 }
 
 /* check_domain_access - domainname-based table lookup */
 
-static int check_domain_access(SMTPD_STATE *state, char *table,
-			               char *domain, int flags,
-			               char *reply_name, char *reply_class,
-			               char *def_acl)
+static int check_domain_access(SMTPD_STATE *state, const char *table,
+			               const char *domain, int flags,
+			               int *found, const char *reply_name,
+			               const char *reply_class,
+			               const char *def_acl)
 {
     char   *myname = "check_domain_access";
     char   *low_domain = lowercase(mystrdup(domain));
@@ -1265,32 +1595,35 @@ static int check_domain_access(SMTPD_STATE *state, char *table,
     /*
      * Try the name and its parent domains. Including top-level domains.
      */
-#define CHK_DOMAIN_RETURN(x) { myfree(low_domain); return(x); }
+#define CHK_DOMAIN_RETURN(x,y) { *found = y; myfree(low_domain); return(x); }
 
     if ((dict = dict_handle(table)) == 0)
 	msg_panic("%s: dictionary not found: %s", myname, table);
-    for (name = low_domain; /* void */ ; name = next + 1) {
+    for (name = low_domain; /* void */ ; name = next) {
 	if (flags == 0 || (flags & dict->flags) != 0) {
 	    if ((value = dict_get(dict, name)) != 0)
 		CHK_DOMAIN_RETURN(check_table_result(state, table, value,
 					    domain, reply_name, reply_class,
-						     def_acl));
+						     def_acl), FOUND);
 	    if (dict_errno != 0)
 		msg_fatal("%s: table lookup problem", table);
 	}
-	if ((next = strchr(name, '.')) == 0)
+	if ((next = strchr(name + 1, '.')) == 0)
 	    break;
+	if (access_parent_style == MATCH_FLAG_PARENT)
+	    next += 1;
 	flags = PARTIAL;
     }
-    CHK_DOMAIN_RETURN(SMTPD_CHECK_DUNNO);
+    CHK_DOMAIN_RETURN(SMTPD_CHECK_DUNNO, MISSED);
 }
 
 /* check_addr_access - address-based table lookup */
 
-static int check_addr_access(SMTPD_STATE *state, char *table,
-			             char *address, int flags,
-			             char *reply_name, char *reply_class,
-			             char *def_acl)
+static int check_addr_access(SMTPD_STATE *state, const char *table,
+			             const char *address, int flags,
+			             int *found, const char *reply_name,
+			             const char *reply_class,
+			             const char *def_acl)
 {
     char   *myname = "check_addr_access";
     char   *addr;
@@ -1303,6 +1636,8 @@ static int check_addr_access(SMTPD_STATE *state, char *table,
     /*
      * Try the address and its parent networks.
      */
+#define CHK_ADDR_RETURN(x,y) { *found = y; return(x); }
+
     addr = STR(vstring_strcpy(error_text, address));
 
     if ((dict = dict_handle(table)) == 0)
@@ -1310,24 +1645,26 @@ static int check_addr_access(SMTPD_STATE *state, char *table,
     do {
 	if (flags == 0 || (flags & dict->flags) != 0) {
 	    if ((value = dict_get(dict, addr)) != 0)
-		return (check_table_result(state, table, value, address,
-					   reply_name, reply_class,
-					   def_acl));
+		CHK_ADDR_RETURN(check_table_result(state, table, value, address,
+						   reply_name, reply_class,
+						   def_acl), FOUND);
 	    if (dict_errno != 0)
 		msg_fatal("%s: table lookup problem", table);
 	}
 	flags = PARTIAL;
     } while (split_at_right(addr, '.'));
 
-    return (SMTPD_CHECK_DUNNO);
+    CHK_ADDR_RETURN(SMTPD_CHECK_DUNNO, MISSED);
 }
 
 /* check_namadr_access - OK/FAIL based on host name/address lookup */
 
-static int check_namadr_access(SMTPD_STATE *state, char *table,
-			               char *name, char *addr, int flags,
-			               char *reply_name, char *reply_class,
-			               char *def_acl)
+static int check_namadr_access(SMTPD_STATE *state, const char *table,
+			               const char *name, const char *addr,
+			               int flags, int *found,
+			               const char *reply_name,
+			               const char *reply_class,
+			               const char *def_acl)
 {
     char   *myname = "check_namadr_access";
     int     status;
@@ -1340,16 +1677,16 @@ static int check_namadr_access(SMTPD_STATE *state, char *table,
      * wildcard may pre-empt a more specific address table entry.
      */
     if ((status = check_domain_access(state, table, name, flags,
-				      reply_name, reply_class,
-				      def_acl)) != 0)
+				      found, reply_name, reply_class,
+				      def_acl)) != 0 || *found)
 	return (status);
 
     /*
      * Look up the network address, or parent networks thereof.
      */
     if ((status = check_addr_access(state, table, addr, flags,
-				    reply_name, reply_class,
-				    def_acl)) != 0)
+				    found, reply_name, reply_class,
+				    def_acl)) != 0 || *found)
 	return (status);
 
     /*
@@ -1360,14 +1697,20 @@ static int check_namadr_access(SMTPD_STATE *state, char *table,
 
 /* check_mail_access - OK/FAIL based on mail address lookup */
 
-static int check_mail_access(SMTPD_STATE *state, char *table, char *addr,
-			             char *reply_name, char *reply_class,
-			             char *def_acl)
+static int check_mail_access(SMTPD_STATE *state, const char *table,
+			             const char *addr, int *found,
+			             const char *reply_name,
+			             const char *reply_class,
+			             const char *def_acl)
 {
     char   *myname = "check_mail_access";
-    char   *ratsign;
+    const RESOLVE_REPLY *reply;
+    const char *domain;
     int     status;
     char   *local_at;
+    char   *bare_addr;
+    char   *bare_ext;
+    char   *bare_at;
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, addr);
@@ -1375,48 +1718,120 @@ static int check_mail_access(SMTPD_STATE *state, char *table, char *addr,
     /*
      * Resolve the address.
      */
-    canon_addr_internal(query, addr);
-    resolve_clnt_query(STR(query), &reply);
-    lowercase(STR(reply.recipient));
+    reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, addr);
 
     /*
      * Garbage in, garbage out. Every address from canon_addr_internal() and
      * from resolve_clnt_query() must be fully qualified.
      */
-    if ((ratsign = strrchr(STR(reply.recipient), '@')) == 0) {
-	msg_warn("%s: no @domain in address: %s", myname, STR(reply.recipient));
+    if ((domain = strrchr(CONST_STR(reply->recipient), '@')) == 0) {
+	msg_warn("%s: no @domain in address: %s", myname, 
+	CONST_STR(reply->recipient));
 	return (0);
     }
+    domain += 1;
 
     /*
-     * Look up the full address.
+     * In case of address extensions.
      */
-    if ((status = check_access(state, table, STR(reply.recipient), FULL,
-			       reply_name, reply_class, def_acl)) != 0)
-	return (status);
+    if (*var_rcpt_delim == 0) {
+	bare_addr = 0;
+    } else {
+	bare_addr = mystrdup(addr);
+	if ((bare_at = strrchr(bare_addr, '@')) != 0)
+	    *bare_at = 0;
+	if ((bare_ext = split_addr(bare_addr, *var_rcpt_delim)) != 0) {
+	    if (bare_at != 0) {
+		*bare_at = '@';
+		memmove(bare_ext - 1, bare_at, strlen(bare_at) + 1);
+		bare_at = bare_ext - 1;
+	    }
+	} else {
+	    myfree(bare_addr);
+	    bare_addr = 0;
+	}
+    }
+
+#define CHECK_MAIL_ACCESS_RETURN(x) \
+	{ if (bare_addr) myfree(bare_addr); return(x); }
+
+    /*
+     * Source-routed, non-local, recipient addresses are too suspicious for
+     * returning an "OK" result. The complicated expression below was brought
+     * to you by the keyboard of Victor Duchovni, Morgan Stanley and hacked
+     * up a bit by Wietse.
+     */
+#define SUSPICIOUS(domain, reply, state, reply_name, reply_class) \
+	(var_allow_untrust_route == 0 \
+	&& (reply->flags & RESOLVE_FLAG_ROUTED) \
+	&& strcmp(reply_class, SMTPD_NAME_RECIPIENT) == 0 \
+	&& !resolve_final(state, reply_name, domain))
+
+    /*
+     * Look up user+foo@domain if the address has an extension, user@domain
+     * otherwise.
+     */
+    if ((status = check_access(state, table, CONST_STR(reply->recipient), FULL,
+			       found, reply_name, reply_class, def_acl)) != 0
+	|| *found)
+	CHECK_MAIL_ACCESS_RETURN(status == SMTPD_CHECK_OK
+	      && SUSPICIOUS(domain, reply, state, reply_name, reply_class) ?
+				 SMTPD_CHECK_DUNNO : status);
+
+    /*
+     * Try user@domain if the address has an extension.
+     */
+    if (bare_addr)
+	if ((status = check_access(state, table, bare_addr, PARTIAL,
+			      found, reply_name, reply_class, def_acl)) != 0
+	    || *found)
+	    CHECK_MAIL_ACCESS_RETURN(status == SMTPD_CHECK_OK
+	      && SUSPICIOUS(domain, reply, state, reply_name, reply_class) ?
+				     SMTPD_CHECK_DUNNO : status);
 
     /*
      * Look up the domain name, or parent domains thereof.
      */
-    if ((status = check_domain_access(state, table, ratsign + 1, PARTIAL,
-				    reply_name, reply_class, def_acl)) != 0)
-	return (status);
+    if ((status = check_domain_access(state, table, domain, PARTIAL,
+			      found, reply_name, reply_class, def_acl)) != 0
+	|| *found)
+	CHECK_MAIL_ACCESS_RETURN(status == SMTPD_CHECK_OK
+	      && SUSPICIOUS(domain, reply, state, reply_name, reply_class) ?
+				 SMTPD_CHECK_DUNNO : status);
 
     /*
-     * Look up localpart@
+     * Look up user+foo@ if the address has an extension, user@ otherwise.
+     * XXX This leaks a little memory if map lookup is aborted.
      */
-    local_at = mystrndup(STR(reply.recipient),
-			 ratsign - STR(reply.recipient) + 1);
-    status = check_access(state, table, local_at, PARTIAL,
+    local_at = mystrndup(CONST_STR(reply->recipient),
+			 domain - CONST_STR(reply->recipient));
+    status = check_access(state, table, local_at, PARTIAL, found,
 			  reply_name, reply_class, def_acl);
     myfree(local_at);
-    if (status != 0)
-	return (status);
+    if (status != 0 || *found)
+	CHECK_MAIL_ACCESS_RETURN(status == SMTPD_CHECK_OK
+	      && SUSPICIOUS(domain, reply, state, reply_name, reply_class) ?
+				 SMTPD_CHECK_DUNNO : status);
+
+    /*
+     * Look up user@ if the address has an extension. XXX Same problem here.
+     */
+    if (bare_addr) {
+	local_at = (bare_at ? mystrndup(bare_addr, bare_at + 1 - bare_addr) :
+		    mystrdup(bare_addr));
+	status = check_access(state, table, local_at, PARTIAL, found,
+			      reply_name, reply_class, def_acl);
+	myfree(local_at);
+	if (status != 0 || *found)
+	    CHECK_MAIL_ACCESS_RETURN(status == SMTPD_CHECK_OK
+	      && SUSPICIOUS(domain, reply, state, reply_name, reply_class) ?
+				     SMTPD_CHECK_DUNNO : status);
+    }
 
     /*
      * Undecided when no match found.
      */
-    return (SMTPD_CHECK_DUNNO);
+    CHECK_MAIL_ACCESS_RETURN(SMTPD_CHECK_DUNNO);
 }
 
 /* reject_maps_rbl - reject if client address in real-time blackhole list */
@@ -1436,9 +1851,18 @@ static int reject_maps_rbl(SMTPD_STATE *state)
     int     dns_status = DNS_FAIL;
     int     i;
     int     result;
+    VSTRING *why;
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, state->addr);
+
+    /*
+     * IPv4 only for now
+     */
+#ifdef INET6
+    if (inet_pton(AF_INET, state->addr, &a) != 1)
+	return SMTPD_CHECK_DUNNO;
+#endif
 
     /*
      * Build the constant part of the RBL query: the reverse client address.
@@ -1453,14 +1877,18 @@ static int reject_maps_rbl(SMTPD_STATE *state)
      * Tack on each RBL domain name and query the DNS for an A record. If the
      * record exists, the client address is blacklisted.
      */
+    why = vstring_alloc(10);
     while ((rbl_domain = mystrtok(&bp, " \t\r\n,")) != 0) {
 	vstring_truncate(query, reverse_len);
 	vstring_strcat(query, rbl_domain);
 	dns_status = dns_lookup(STR(query), T_A, 0, (DNS_RR **) 0,
-				(VSTRING *) 0, (VSTRING *) 0);
+				(VSTRING *) 0, why);
 	if (dns_status == DNS_OK)
 	    break;
+	if (dns_status != DNS_NOTFOUND)
+	    msg_warn("%s: RBL lookup error: %s", STR(query), STR(why));
     }
+    vstring_free(why);
 
     /*
      * Report the result.
@@ -1493,9 +1921,44 @@ static int reject_maps_rbl(SMTPD_STATE *state)
     return (result);
 }
 
+/* reject_sender_login_mismatch - reject login/sender ownership mismatch */
+
+static int reject_sender_login_mismatch(SMTPD_STATE *state, const char *sender)
+{
+    const RESOLVE_REPLY *reply;
+    const char *login = 0;
+    const char *owner = 0;
+
+    /*
+     * If the sender address is owned by a login name, or if the client has
+     * logged in, then require that the client is logged in as the owner of
+     * the sender address.
+     */
+    reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, sender);
+    owner = check_maps_find(state, sender, smtpd_sender_login_maps,
+			    STR(reply->recipient), 0);
+#ifdef USE_SASL_AUTH
+    if (var_smtpd_sasl_enable && state->sasl_username != 0)
+	login = state->sasl_username;
+#endif
+    if (login) {
+	if (owner == 0 || strcasecmp(login, owner) != 0)
+	    return (smtpd_check_reject(state, MAIL_ERROR_POLICY,
+		  "553 <%s>: Sender address rejected: not owned by user %s",
+				       sender, login));
+    } else {
+	if (owner)
+	    return (smtpd_check_reject(state, MAIL_ERROR_POLICY,
+		"553 <%s>: Sender address rejected: not logged in as owner",
+				       sender));
+    }
+    return (SMTPD_CHECK_DUNNO);
+}
+
 /* is_map_command - restriction has form: check_xxx_access type:name */
 
-static int is_map_command(char *name, char *command, char ***argp)
+static int is_map_command(SMTPD_STATE *state, const char *name,
+			          const char *command, char ***argp)
 {
 
     /*
@@ -1509,7 +1972,8 @@ static int is_map_command(char *name, char *command, char ***argp)
 	return (0);
     } else if (*(*argp + 1) == 0 || strchr(*(*argp += 1), ':') == 0) {
 	msg_warn("restriction %s requires maptype:mapname", command);
-	longjmp(smtpd_check_buf, -1);
+	longjmp(smtpd_check_buf, smtpd_check_reject(state, MAIL_ERROR_SOFTWARE,
+					 "451 Server configuration error"));
     } else {
 	return (1);
     }
@@ -1518,13 +1982,17 @@ static int is_map_command(char *name, char *command, char ***argp)
 /* generic_checks - generic restrictions */
 
 static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
-		         char *reply_name, char *reply_class, char *def_acl)
+			          const char *reply_name,
+			          const char *reply_class,
+			          const char *def_acl)
 {
     char   *myname = "generic_checks";
     char  **cpp;
-    char   *name;
+    const char *name;
     int     status = 0;
     ARGV   *list;
+    int     found;
+    int     saved_recursion = state->recursion;
 
     if (msg_verbose)
 	msg_info("%s: START", myname);
@@ -1533,6 +2001,15 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 
 	if (msg_verbose)
 	    msg_info("%s: name=%s", myname, name);
+
+	/*
+	 * Pseudo restrictions.
+	 */
+	if (strcasecmp(name, WARN_IF_REJECT) == 0) {
+	    if (state->warn_if_reject == 0)
+		state->warn_if_reject = state->recursion;
+	    continue;
+	}
 
 	/*
 	 * Spoof the is_map_command() routine, so that we do not have to make
@@ -1548,14 +2025,14 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	 */
 	if (strcasecmp(name, PERMIT_ALL) == 0) {
 	    status = SMTPD_CHECK_OK;
-	    if (cpp[1] != 0)
+	    if (cpp[1] != 0 && state->warn_if_reject == 0)
 		msg_warn("restriction `%s' after `%s' is ignored",
 			 cpp[1], PERMIT_ALL);
 	} else if (strcasecmp(name, REJECT_ALL) == 0) {
 	    status = smtpd_check_reject(state, MAIL_ERROR_POLICY,
 				      "%d <%s>: %s rejected: Access denied",
 				  var_reject_code, reply_name, reply_class);
-	    if (cpp[1] != 0)
+	    if (cpp[1] != 0 && state->warn_if_reject == 0)
 		msg_warn("restriction `%s' after `%s' is ignored",
 			 cpp[1], REJECT_ALL);
 	} else if (strcasecmp(name, REJECT_UNAUTH_PIPE) == 0) {
@@ -1569,9 +2046,9 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    status = reject_unknown_client(state);
 	} else if (strcasecmp(name, PERMIT_MYNETWORKS) == 0) {
 	    status = permit_mynetworks(state);
-	} else if (is_map_command(name, CHECK_CLIENT_ACL, &cpp)) {
+	} else if (is_map_command(state, name, CHECK_CLIENT_ACL, &cpp)) {
 	    status = check_namadr_access(state, *cpp, state->name, state->addr,
-					 FULL, state->namaddr,
+					 FULL, &found, state->namaddr,
 					 SMTPD_NAME_CLIENT, def_acl);
 	} else if (strcasecmp(name, REJECT_MAPS_RBL) == 0) {
 	    status = reject_maps_rbl(state);
@@ -1580,10 +2057,10 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	/*
 	 * HELO/EHLO parameter restrictions.
 	 */
-	else if (is_map_command(name, CHECK_HELO_ACL, &cpp)) {
+	else if (is_map_command(state, name, CHECK_HELO_ACL, &cpp)) {
 	    if (state->helo_name)
 		status = check_domain_access(state, *cpp, state->helo_name,
-					     FULL, state->helo_name,
+					     FULL, &found, state->helo_name,
 					     SMTPD_NAME_HELO, def_acl);
 	} else if (strcasecmp(name, REJECT_INVALID_HOSTNAME) == 0) {
 	    if (state->helo_name) {
@@ -1624,11 +2101,15 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	/*
 	 * Sender mail address restrictions.
 	 */
-	else if (is_map_command(name, CHECK_SENDER_ACL, &cpp)) {
+	else if (is_map_command(state, name, CHECK_SENDER_ACL, &cpp)) {
 	    if (state->sender && *state->sender)
 		status = check_mail_access(state, *cpp, state->sender,
-					   state->sender,
+					   &found, state->sender,
 					   SMTPD_NAME_SENDER, def_acl);
+	    if (state->sender && !*state->sender)
+		status = check_access(state, *cpp, var_smtpd_null_key, FULL,
+				      &found, state->sender,
+				      SMTPD_NAME_SENDER, def_acl);
 	} else if (strcasecmp(name, REJECT_UNKNOWN_ADDRESS) == 0) {
 	    if (state->sender && *state->sender)
 		status = reject_unknown_address(state, state->sender,
@@ -1641,22 +2122,25 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    if (state->sender && *state->sender)
 		status = reject_non_fqdn_address(state, state->sender,
 					  state->sender, SMTPD_NAME_SENDER);
+	} else if (strcasecmp(name, REJECT_SENDER_LOGIN_MISMATCH) == 0) {
+	    if (state->sender && *state->sender)
+		status = reject_sender_login_mismatch(state, state->sender);
 	}
 
 	/*
 	 * Recipient mail address restrictions.
 	 */
-	else if (is_map_command(name, CHECK_RECIP_ACL, &cpp)) {
+	else if (is_map_command(state, name, CHECK_RECIP_ACL, &cpp)) {
 	    if (state->recipient)
 		status = check_mail_access(state, *cpp, state->recipient,
-					   state->recipient,
+					   &found, state->recipient,
 					   SMTPD_NAME_RECIPIENT, def_acl);
 	} else if (strcasecmp(name, PERMIT_MX_BACKUP) == 0) {
 	    if (state->recipient)
 		status = permit_mx_backup(state, state->recipient);
 	} else if (strcasecmp(name, PERMIT_AUTH_DEST) == 0) {
 	    if (state->recipient)
-		status = permit_auth_destination(state->recipient);
+		status = permit_auth_destination(state, state->recipient);
 	} else if (strcasecmp(name, REJECT_UNAUTH_DEST) == 0) {
 	    if (state->recipient)
 		status = reject_unauth_destination(state, state->recipient);
@@ -1664,7 +2148,7 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    if (state->recipient)
 		status = check_relay_domains(state, state->recipient,
 				    state->recipient, SMTPD_NAME_RECIPIENT);
-	    if (cpp[1] != 0)
+	    if (cpp[1] != 0 && state->warn_if_reject == 0)
 		msg_warn("restriction `%s' after `%s' is ignored",
 			 cpp[1], CHECK_RELAY_DOMAINS);
 #ifdef USE_SASL_AUTH
@@ -1686,10 +2170,10 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	/*
 	 * ETRN domain name restrictions.
 	 */
-	else if (is_map_command(name, CHECK_ETRN_ACL, &cpp)) {
+	else if (is_map_command(state, name, CHECK_ETRN_ACL, &cpp)) {
 	    if (state->etrn_name)
 		status = check_domain_access(state, *cpp, state->etrn_name,
-					     FULL, state->etrn_name,
+					     FULL, &found, state->etrn_name,
 					     SMTPD_NAME_ETRN, def_acl);
 	}
 
@@ -1706,16 +2190,22 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	 */
 	else {
 	    msg_warn("unknown smtpd restriction: \"%s\"", name);
-	    break;
+	    longjmp(smtpd_check_buf, smtpd_check_reject(state,
+		    MAIL_ERROR_SOFTWARE, "451 Server configuration error"));
 	}
 	if (msg_verbose)
 	    msg_info("%s: name=%s status=%d", myname, name, status);
+
+	if (state->warn_if_reject >= state->recursion)
+	    state->warn_if_reject = 0;
 
 	if (status != 0)
 	    break;
     }
     if (msg_verbose && name == 0)
 	msg_info("%s: END", myname);
+
+    state->recursion = saved_recursion;
 
     return (status);
 }
@@ -1735,7 +2225,7 @@ char   *smtpd_check_client(SMTPD_STATE *state)
     /*
      * Apply restrictions in the order as specified.
      */
-    state->recursion = 0;
+    state->recursion = 1;
     status = setjmp(smtpd_check_buf);
     if (status == 0 && client_restrctions->argc)
 	status = generic_checks(state, client_restrctions, state->namaddr,
@@ -1781,7 +2271,7 @@ char   *smtpd_check_helo(SMTPD_STATE *state, char *helohost)
     /*
      * Apply restrictions in the order as specified.
      */
-    state->recursion = 0;
+    state->recursion = 1;
     status = setjmp(smtpd_check_buf);
     if (status == 0 && helo_restrctions->argc)
 	status = generic_checks(state, helo_restrctions, state->helo_name,
@@ -1817,7 +2307,7 @@ char   *smtpd_check_mail(SMTPD_STATE *state, char *sender)
     /*
      * Apply restrictions in the order as specified.
      */
-    state->recursion = 0;
+    state->recursion = 1;
     status = setjmp(smtpd_check_buf);
     if (status == 0 && mail_restrctions->argc)
 	status = generic_checks(state, mail_restrctions, sender,
@@ -1838,6 +2328,13 @@ char   *smtpd_check_rcpt(SMTPD_STATE *state, char *recipient)
      * Initialize.
      */
     if (recipient == 0)
+	return (0);
+
+    /*
+     * XXX 2821: Section 3.6 requires that "postmaster" be accepted even when
+     * specified without a fully qualified domain name.
+     */
+    if (strcasecmp(recipient, "postmaster") == 0)
 	return (0);
 
     /*
@@ -1864,7 +2361,7 @@ char   *smtpd_check_rcpt(SMTPD_STATE *state, char *recipient)
     /*
      * Apply restrictions in the order as specified.
      */
-    state->recursion = 0;
+    state->recursion = 1;
     status = setjmp(smtpd_check_buf);
     if (status == 0 && rcpt_restrctions->argc)
 	status = generic_checks(state, rcpt_restrctions,
@@ -1909,7 +2406,7 @@ char   *smtpd_check_etrn(SMTPD_STATE *state, char *domain)
     /*
      * Apply restrictions in the order as specified.
      */
-    state->recursion = 0;
+    state->recursion = 1;
     status = setjmp(smtpd_check_buf);
     if (status == 0 && etrn_restrctions->argc)
 	status = generic_checks(state, etrn_restrctions, domain,
@@ -1924,7 +2421,9 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
 {
     char   *myname = "smtpd_check_rcptmap";
     char   *saved_recipient;
-    char   *domain;
+    const RESOLVE_REPLY *reply;
+    const char *domain;
+    int     status;
 
     /*
      * XXX This module does a lot of unnecessary guessing. This functionality
@@ -1941,16 +2440,22 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
     SMTPD_CHECK_PUSH(saved_recipient, state->recipient, recipient);
 
     /*
+     * Return here in case of serious trouble.
+     */
+    if ((status = setjmp(smtpd_check_buf)) != 0)
+	SMTPD_CHECK_RCPT_RETURN(status == SMTPD_CHECK_REJECT ?
+				STR(error_text) : 0);
+
+    /*
      * Resolve the address.
      */
-    canon_addr_internal(query, recipient);
-    resolve_clnt_query(STR(query), &reply);
-    lowercase(STR(reply.recipient));
+    reply = (const RESOLVE_REPLY *)
+	ctable_locate(smtpd_resolve_cache, recipient);
 
     /*
      * Skip non-DNS forms. Skip non-local numerical forms.
      */
-    if ((domain = strrchr(STR(reply.recipient), '@')) == 0)
+    if ((domain = strrchr(CONST_STR(reply->recipient), '@')) == 0)
 	SMTPD_CHECK_RCPT_RETURN(0);
     domain += 1;
     if (domain[0] == '#' || domain[0] == '[')
@@ -1958,16 +2463,34 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
 	    SMTPD_CHECK_RCPT_RETURN(0);
 
 #define NOMATCH(map, rcpt) \
-    (mail_addr_find(map, rcpt, (char **) 0) == 0 && dict_errno == 0)
+    (check_mail_addr_find(state, recipient, map, rcpt, (char **) 0) == 0)
 
     /*
      * Reject mail to unknown addresses in Postfix-style virtual domains.
      */
-    if (*var_virtual_maps && maps_find(virtual_maps, domain, 0)) {
-	if (NOMATCH(rcpt_canon_maps, STR(reply.recipient))
-	    && NOMATCH(canonical_maps, STR(reply.recipient))
-	    && NOMATCH(relocated_maps, STR(reply.recipient))
-	    && NOMATCH(virtual_maps, STR(reply.recipient))) {
+    if (*var_virtual_maps
+	&& (check_maps_find(state, recipient, virtual_maps, domain, 0))) {
+	if (NOMATCH(rcpt_canon_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(canonical_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(relocated_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virt_mailbox_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virtual_maps, CONST_STR(reply->recipient))) {
+	    (void) smtpd_check_reject(state, MAIL_ERROR_BOUNCE,
+				   "%d <%s>: User unknown", 550, recipient);
+	    SMTPD_CHECK_RCPT_RETURN(STR(error_text));
+	}
+    }
+
+    /*
+     * Reject mail to unknown addresses in Postfix-style virtual domains.
+     */
+    if (*var_virt_mailbox_maps
+     && (check_maps_find(state, recipient, virt_mailbox_maps, domain, 0))) {
+	if (NOMATCH(rcpt_canon_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(canonical_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(relocated_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virt_mailbox_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virtual_maps, CONST_STR(reply->recipient))) {
 	    (void) smtpd_check_reject(state, MAIL_ERROR_BOUNCE,
 				   "%d <%s>: User unknown", 550, recipient);
 	    SMTPD_CHECK_RCPT_RETURN(STR(error_text));
@@ -1980,11 +2503,12 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
      * Sendmail-style virtual domains.
      */
     if (*var_local_rcpt_maps && resolve_local(domain)) {
-	if (NOMATCH(rcpt_canon_maps, STR(reply.recipient))
-	    && NOMATCH(canonical_maps, STR(reply.recipient))
-	    && NOMATCH(relocated_maps, STR(reply.recipient))
-	    && NOMATCH(virtual_maps, STR(reply.recipient))
-	    && NOMATCH(local_rcpt_maps, STR(reply.recipient))) {
+	if (NOMATCH(rcpt_canon_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(canonical_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(relocated_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virt_mailbox_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(virtual_maps, CONST_STR(reply->recipient))
+	    && NOMATCH(local_rcpt_maps, CONST_STR(reply->recipient))) {
 	    (void) smtpd_check_reject(state, MAIL_ERROR_BOUNCE,
 				   "%d <%s>: User unknown", 550, recipient);
 	    SMTPD_CHECK_RCPT_RETURN(STR(error_text));
@@ -2004,6 +2528,13 @@ char   *smtpd_check_size(SMTPD_STATE *state, off_t size)
 {
     char   *myname = "smtpd_check_size";
     struct fsspace fsbuf;
+    int     status;
+
+    /*
+     * Return here in case of serious trouble.
+     */
+    if ((status = setjmp(smtpd_check_buf)) != 0)
+	return (status == SMTPD_CHECK_REJECT ? STR(error_text) : 0);
 
     /*
      * Avoid overflow/underflow when comparing message size against available
@@ -2067,15 +2598,22 @@ char   *var_notify_classes = "";
   * String-valued configuration parameters.
   */
 char   *var_maps_rbl_domains;
+char   *var_myorigin;
 char   *var_mydest;
 char   *var_inet_interfaces;
+char   *var_rcpt_delim;
 char   *var_rest_classes;
 char   *var_alias_maps;
 char   *var_rcpt_canon_maps;
 char   *var_canonical_maps;
 char   *var_virtual_maps;
+char   *var_virt_mailbox_maps;
 char   *var_relocated_maps;
 char   *var_local_rcpt_maps;
+char   *var_perm_mx_networks;
+char   *var_par_dom_match;
+char   *var_smtpd_null_key;
+char   *var_smtpd_snd_auth_maps;
 
 typedef struct {
     char   *name;
@@ -2085,15 +2623,22 @@ typedef struct {
 
 static STRING_TABLE string_table[] = {
     VAR_MAPS_RBL_DOMAINS, DEF_MAPS_RBL_DOMAINS, &var_maps_rbl_domains,
+    VAR_MYORIGIN, DEF_MYORIGIN, &var_myorigin,
     VAR_MYDEST, DEF_MYDEST, &var_mydest,
     VAR_INET_INTERFACES, DEF_INET_INTERFACES, &var_inet_interfaces,
+    VAR_RCPT_DELIM, DEF_RCPT_DELIM, &var_rcpt_delim,
     VAR_REST_CLASSES, DEF_REST_CLASSES, &var_rest_classes,
     VAR_ALIAS_MAPS, DEF_ALIAS_MAPS, &var_alias_maps,
     VAR_RCPT_CANON_MAPS, DEF_RCPT_CANON_MAPS, &var_rcpt_canon_maps,
     VAR_CANONICAL_MAPS, DEF_CANONICAL_MAPS, &var_canonical_maps,
     VAR_VIRTUAL_MAPS, DEF_VIRTUAL_MAPS, &var_virtual_maps,
+    VAR_VIRT_MAILBOX_MAPS, DEF_VIRT_MAILBOX_MAPS, &var_virt_mailbox_maps,
     VAR_RELOCATED_MAPS, DEF_RELOCATED_MAPS, &var_relocated_maps,
     VAR_LOCAL_RCPT_MAPS, DEF_LOCAL_RCPT_MAPS, &var_local_rcpt_maps,
+    VAR_PERM_MX_NETWORKS, DEF_PERM_MX_NETWORKS, &var_perm_mx_networks,
+    VAR_PAR_DOM_MATCH, DEF_PAR_DOM_MATCH, &var_par_dom_match,
+    VAR_SMTPD_SND_AUTH_MAPS, DEF_SMTPD_SND_AUTH_MAPS, &var_smtpd_snd_auth_maps,
+    VAR_SMTPD_NULL_KEY, DEF_SMTPD_NULL_KEY, &var_smtpd_null_key,
     0,
 };
 
@@ -2194,7 +2739,7 @@ static int int_update(char **argv)
 typedef struct {
     char   *name;
     ARGV  **target;
-}       REST_TABLE;
+} REST_TABLE;
 
 static REST_TABLE rest_table[] = {
     "client_restrictions", &client_restrctions,
@@ -2245,10 +2790,45 @@ static void rest_class(char *class)
 
 void    resolve_clnt_init(RESOLVE_REPLY *reply)
 {
+    reply->flags = 0;
     reply->transport = vstring_alloc(100);
     reply->nexthop = vstring_alloc(100);
     reply->recipient = vstring_alloc(100);
 }
+
+void    resolve_clnt_free(RESOLVE_REPLY *reply)
+{
+    vstring_free(reply->transport);
+    vstring_free(reply->nexthop);
+    vstring_free(reply->recipient);
+}
+
+#ifdef USE_SASL_AUTH
+
+bool    var_smtpd_sasl_enable = 0;
+
+/* smtpd_sasl_connect - stub */
+
+void    smtpd_sasl_connect(SMTPD_STATE *state)
+{
+    msg_panic("smtpd_sasl_connect was called");
+}
+
+/* smtpd_sasl_disconnect - stub */
+
+void    smtpd_sasl_disconnect(SMTPD_STATE *state)
+{
+    msg_panic("smtpd_sasl_disconnect was called");
+}
+
+/* permit_sasl_auth - stub */
+
+int     permit_sasl_auth(SMTPD_STATE *state, int ifyes, int ifnot)
+{
+    return (ifnot);
+}
+
+#endif
 
 /* canon_addr_internal - stub */
 
@@ -2256,7 +2836,7 @@ VSTRING *canon_addr_internal(VSTRING *result, const char *addr)
 {
     if (addr == STR(result))
 	msg_panic("canon_addr_internal: result clobbers input");
-    if (strchr(addr, '@') == 0)
+    if (*addr && strchr(addr, '@') == 0)
 	msg_fatal("%s: address rewriting is disabled", addr);
     vstring_strcpy(result, addr);
 }
@@ -2265,7 +2845,7 @@ VSTRING *canon_addr_internal(VSTRING *result, const char *addr)
 
 void    resolve_clnt_query(const char *addr, RESOLVE_REPLY *reply)
 {
-    if (addr == STR(reply->recipient))
+    if (addr == CONST_STR(reply->recipient))
 	msg_panic("resolve_clnt_query: result clobbers input");
     vstring_strcpy(reply->transport, "foo");
     vstring_strcpy(reply->nexthop, "foo");
@@ -2287,13 +2867,14 @@ static NORETURN usage(char *myname)
     msg_fatal("usage: %s", myname);
 }
 
-main(int argc, char **argv)
+int     main(int argc, char **argv)
 {
     VSTRING *buf = vstring_alloc(100);
     SMTPD_STATE state;
     ARGV   *args;
     char   *bp;
     char   *resp;
+    char   *addr;
 
     /*
      * Initialization. Use dummies for client information.
@@ -2362,16 +2943,51 @@ main(int argc, char **argv)
 	    /*
 	     * Try config settings.
 	     */
+#define UPDATE_MAPS(ptr, var, val, lock) \
+	{ if (ptr) maps_free(ptr); ptr = maps_create(var, val, lock); }
+
 	case 2:
+	    if (strcasecmp(args->argv[0], "virtual_maps") == 0) {
+		UPDATE_STRING(var_virtual_maps, args->argv[1]);
+		UPDATE_MAPS(virtual_maps, VAR_VIRTUAL_MAPS,
+			    var_virtual_maps, DICT_FLAG_LOCK);
+		resp = 0;
+		break;
+	    }
+	    if (strcasecmp(args->argv[0], VAR_VIRT_MAILBOX_MAPS) == 0) {
+		UPDATE_STRING(var_virt_mailbox_maps, args->argv[1]);
+		UPDATE_MAPS(virt_mailbox_maps, VAR_VIRT_MAILBOX_MAPS,
+			    var_virt_mailbox_maps, DICT_FLAG_LOCK);
+		resp = 0;
+		break;
+	    }
+	    if (strcasecmp(args->argv[0], "local_recipient_maps") == 0) {
+		UPDATE_STRING(var_local_rcpt_maps, args->argv[1]);
+		UPDATE_MAPS(local_rcpt_maps, VAR_LOCAL_RCPT_MAPS,
+			    var_local_rcpt_maps, DICT_FLAG_LOCK);
+		resp = 0;
+		break;
+	    }
+	    if (strcasecmp(args->argv[0], "canonical_maps") == 0) {
+		UPDATE_STRING(var_canonical_maps, args->argv[1]);
+		UPDATE_MAPS(canonical_maps, VAR_CANONICAL_MAPS,
+			    var_canonical_maps, DICT_FLAG_LOCK);
+		resp = 0;
+		break;
+	    }
 	    if (strcasecmp(args->argv[0], "mynetworks") == 0) {
 		namadr_list_free(mynetworks);
-		mynetworks = namadr_list_init(args->argv[1]);
+		mynetworks =
+		    namadr_list_init(match_parent_style(VAR_MYNETWORKS),
+				     args->argv[1]);
 		resp = 0;
 		break;
 	    }
 	    if (strcasecmp(args->argv[0], "relay_domains") == 0) {
 		domain_list_free(relay_domains);
-		relay_domains = domain_list_init(args->argv[1]);
+		relay_domains =
+		    domain_list_init(match_parent_style(VAR_RELAY_DOMAINS),
+				     args->argv[1]);
 		resp = 0;
 		break;
 	    }
@@ -2390,17 +3006,29 @@ main(int argc, char **argv)
 	    /*
 	     * Try restrictions.
 	     */
+#define TRIM_ADDR(src, res) { \
+	    if (*(res = src) == '<') { \
+		res += strlen(res) - 1; \
+		if (*res == '>') \
+		    *res = 0; \
+		res = src + 1; \
+	    } \
+	}
+
 	    if (strcasecmp(args->argv[0], "helo") == 0) {
 		state.where = "HELO";
 		resp = smtpd_check_helo(&state, args->argv[1]);
 		UPDATE_STRING(state.helo_name, args->argv[1]);
 	    } else if (strcasecmp(args->argv[0], "mail") == 0) {
 		state.where = "MAIL";
-		resp = smtpd_check_mail(&state, args->argv[1]);
-		UPDATE_STRING(state.sender, args->argv[1]);
+		TRIM_ADDR(args->argv[1], addr);
+		UPDATE_STRING(state.sender, addr);
+		resp = smtpd_check_mail(&state, addr);
 	    } else if (strcasecmp(args->argv[0], "rcpt") == 0) {
 		state.where = "RCPT";
-		resp = smtpd_check_rcpt(&state, args->argv[1]);
+		TRIM_ADDR(args->argv[1], addr);
+		(resp = smtpd_check_rcpt(&state, addr))
+		    || (resp = smtpd_check_rcptmap(&state, addr));
 	    }
 	    break;
 

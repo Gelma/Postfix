@@ -1,15 +1,12 @@
 <html> <head> </head> <body> <pre>
 
-
-
 MASTER(8)                                               MASTER(8)
-
 
 <b>NAME</b>
        master - Postfix master process
 
 <b>SYNOPSIS</b>
-       <b>master</b> [<b>-c</b> <i>config_dir</i>] [<b>-D</b>] [<b>-t</b>] [<b>-v</b>]
+       <b>master</b> [<b>-c</b> <i>config_dir</i>] [<b>-e</b> <i>exit_time</i>] [<b>-D</b>] [<b>-t</b>] [<b>-v</b>]
 
 <b>DESCRIPTION</b>
        The  <b>master</b> daemon is the resident process that runs Post-
@@ -37,6 +34,11 @@ MASTER(8)                                               MASTER(8)
               in the named directory instead of the default  con-
               figuration directory.
 
+       <b>-e</b> <i>exit_time</i>
+              Terminate  the  master process after <i>exit_time</i> sec-
+              onds. Child processes  terminate  at  their  conve-
+              nience.
+
        <b>-D</b>     After  initialization, run a debugger on the master
               process. The debugging command  is  specified  with
               the <b>debugger</b><i>_</i><b>command</b> in the <b>main.cf</b> global configu-
@@ -59,18 +61,6 @@ MASTER(8)                                               MASTER(8)
               <b>master.cf</b> file, its running  processes  are  termi-
               nated  immediately.   Otherwise,  running processes
               are allowed to terminate as soon as is  convenient,
-
-
-
-                                                                1
-
-
-
-
-
-MASTER(8)                                               MASTER(8)
-
-
               so  that  changes  in configuration settings affect
               only new service requests.
 
@@ -124,19 +114,6 @@ MASTER(8)                                               MASTER(8)
               also the root directory of Postfix daemons that run
               chrooted.
 
-
-
-
-
-                                                                2
-
-
-
-
-
-MASTER(8)                                               MASTER(8)
-
-
 <b>Resource</b> <b>controls</b>
        <b>default</b><i>_</i><b>process</b><i>_</i><b>limit</b>
               Default  limit for the number of simultaneous child
@@ -174,27 +151,6 @@ MASTER(8)                                               MASTER(8)
        P.O. Box 704
        Yorktown Heights, NY 10598, USA
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                                                                3
-
+                                                                1
 
 </pre> </body> </html>

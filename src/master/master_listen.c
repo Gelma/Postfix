@@ -53,6 +53,7 @@
 #include <stringops.h>
 #include <inet_addr_list.h>
 #include <set_eugid.h>
+#include <set_ugid.h>
 #include <iostuff.h>
 
 /* Global library. */
@@ -88,7 +89,7 @@ void    master_listen_init(MASTER_SERV *serv)
 	    LOCAL_LISTEN(serv->name, serv->max_proc > var_proc_limit ?
 			 serv->max_proc : var_proc_limit, NON_BLOCKING);
 	close_on_exec(serv->listen_fd[0], CLOSE_ON_EXEC);
-	set_eugid(getuid(), getgid());
+	set_ugid(getuid(), getgid());
 	break;
 
 	/*
@@ -98,7 +99,7 @@ void    master_listen_init(MASTER_SERV *serv)
 	set_eugid(var_owner_uid, var_owner_gid);
 	serv->listen_fd[0] = fifo_listen(serv->name, 0622, NON_BLOCKING);
 	close_on_exec(serv->listen_fd[0], CLOSE_ON_EXEC);
-	set_eugid(getuid(), getgid());
+	set_ugid(getuid(), getgid());
 	break;
 
 	/*
@@ -106,15 +107,16 @@ void    master_listen_init(MASTER_SERV *serv)
 	 * bound to specific interface addresses.
 	 */
     case MASTER_SERV_TYPE_INET:
-	if (serv->addr_list.inet == 0) {	/* wild-card */
+	if (MASTER_INET_ADDRLIST(serv) == 0) {	/* wild-card */
 	    serv->listen_fd[0] =
-		inet_listen(serv->name, serv->max_proc > var_proc_limit ?
+		inet_listen(MASTER_INET_PORT(serv),
+			    serv->max_proc > var_proc_limit ?
 			    serv->max_proc : var_proc_limit, NON_BLOCKING);
 	    close_on_exec(serv->listen_fd[0], CLOSE_ON_EXEC);
-	} else {				/* virtual */
+	} else {				/* virtual or host:port */
 	    for (n = 0; n < serv->listen_fd_count; n++) {
-		end_point = concatenate(inet_ntoa(serv->addr_list.inet->addrs[n]),
-					":", serv->name, (char *) 0);
+		end_point = concatenate(inet_ntoa(MASTER_INET_ADDRLIST(serv)->addrs[n]),
+				   ":", MASTER_INET_PORT(serv), (char *) 0);
 		serv->listen_fd[n]
 		    = inet_listen(end_point, serv->max_proc > var_proc_limit ?
 			     serv->max_proc : var_proc_limit, NON_BLOCKING);
