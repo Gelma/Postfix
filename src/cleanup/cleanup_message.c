@@ -161,53 +161,52 @@ static void cleanup_rewrite_sender(CLEANUP_STATE *state, HEADER_OPTS *hdr_opts,
     TOK822 *tree;
     TOK822 **addr_list;
     TOK822 **tpp;
+    int     did_rewrite = 0;
 
     if (msg_verbose)
 	msg_info("rewrite_sender: %s", hdr_opts->name);
 
     /*
-     * Parse the header line, rewrite each address found, save copies of
-     * sender addresses, and regenerate the header line. Finally, pipe the
-     * result through the header line folding routine.
+     * Parse the header line, rewrite each address found, and regenerate the
+     * header line. Finally, pipe the result through the header line folding
+     * routine.
      */
     tree = tok822_parse_limit(vstring_str(header_buf)
 			      + strlen(hdr_opts->name) + 1,
 			      var_token_limit);
     addr_list = tok822_grep(tree, TOK822_ADDR);
     for (tpp = addr_list; *tpp; tpp++) {
-	cleanup_rewrite_tree(*tpp);
+	did_rewrite |= cleanup_rewrite_tree(state->hdr_rewrite_context, *tpp);
 	if (state->flags & CLEANUP_FLAG_MAP_OK) {
-	    if (cleanup_send_canon_maps)
-		cleanup_map11_tree(state, *tpp, cleanup_send_canon_maps,
+	    if (cleanup_send_canon_maps
+		&& (cleanup_send_canon_flags & CLEANUP_CANON_FLAG_HDR_FROM))
+		did_rewrite |=
+		    cleanup_map11_tree(state, *tpp, cleanup_send_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-	    if (cleanup_comm_canon_maps)
-		cleanup_map11_tree(state, *tpp, cleanup_comm_canon_maps,
+	    if (cleanup_comm_canon_maps
+		&& (cleanup_comm_canon_flags & CLEANUP_CANON_FLAG_HDR_FROM))
+		did_rewrite |=
+		    cleanup_map11_tree(state, *tpp, cleanup_comm_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
 	    if (cleanup_masq_domains
 		&& (cleanup_masq_flags & CLEANUP_MASQ_FLAG_HDR_FROM))
-		cleanup_masquerade_tree(*tpp, cleanup_masq_domains);
+		did_rewrite |=
+		    cleanup_masquerade_tree(*tpp, cleanup_masq_domains);
 	}
-	if (hdr_opts->type == HDR_FROM && state->from == 0)
-	    state->from = cleanup_extract_internal(header_buf, *tpp);
-	if (hdr_opts->type == HDR_RESENT_FROM && state->resent_from == 0)
-	    state->resent_from =
-		cleanup_extract_internal(header_buf, *tpp);
-#if 0
-	if (hdr_opts->type == HDR_RETURN_RECEIPT_TO && !state->return_receipt)
-	    state->return_receipt =
-		cleanup_extract_internal(header_buf, *tpp);
-#endif
-	if (var_enable_errors_to)
-	    if (hdr_opts->type == HDR_ERRORS_TO && !state->errors_to)
-		state->errors_to =
-		    cleanup_extract_internal(header_buf, *tpp);
     }
-    vstring_sprintf(header_buf, "%s: ", hdr_opts->name);
-    tok822_externalize(header_buf, tree, TOK822_STR_HEAD);
+    if (did_rewrite) {
+	vstring_truncate(header_buf, strlen(hdr_opts->name));
+	vstring_strcat(header_buf, ": ");
+	tok822_externalize(header_buf, tree, TOK822_STR_HEAD);
+    }
     myfree((char *) addr_list);
     tok822_free_tree(tree);
-    if ((hdr_opts->flags & HDR_OPT_DROP) == 0)
-	cleanup_fold_header(state, header_buf);
+    if ((hdr_opts->flags & HDR_OPT_DROP) == 0) {
+	if (did_rewrite)
+	    cleanup_fold_header(state, header_buf);
+	else
+	    cleanup_out_header(state, header_buf);
+    }
 }
 
 /* cleanup_rewrite_recip - recipient address rewriting */
@@ -218,40 +217,52 @@ static void cleanup_rewrite_recip(CLEANUP_STATE *state, HEADER_OPTS *hdr_opts,
     TOK822 *tree;
     TOK822 **addr_list;
     TOK822 **tpp;
+    int     did_rewrite = 0;
 
     if (msg_verbose)
 	msg_info("rewrite_recip: %s", hdr_opts->name);
 
     /*
-     * Parse the header line, rewrite each address found, save copies of
-     * recipient addresses, and regenerate the header line. Finally, pipe the
-     * result through the header line folding routine.
+     * Parse the header line, rewrite each address found, and regenerate the
+     * header line. Finally, pipe the result through the header line folding
+     * routine.
      */
     tree = tok822_parse_limit(vstring_str(header_buf)
 			      + strlen(hdr_opts->name) + 1,
 			      var_token_limit);
     addr_list = tok822_grep(tree, TOK822_ADDR);
     for (tpp = addr_list; *tpp; tpp++) {
-	cleanup_rewrite_tree(*tpp);
+	did_rewrite |= cleanup_rewrite_tree(state->hdr_rewrite_context, *tpp);
 	if (state->flags & CLEANUP_FLAG_MAP_OK) {
-	    if (cleanup_rcpt_canon_maps)
-		cleanup_map11_tree(state, *tpp, cleanup_rcpt_canon_maps,
+	    if (cleanup_rcpt_canon_maps
+		&& (cleanup_rcpt_canon_flags & CLEANUP_CANON_FLAG_HDR_RCPT))
+		did_rewrite |=
+		    cleanup_map11_tree(state, *tpp, cleanup_rcpt_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-	    if (cleanup_comm_canon_maps)
-		cleanup_map11_tree(state, *tpp, cleanup_comm_canon_maps,
+	    if (cleanup_comm_canon_maps
+		&& (cleanup_comm_canon_flags & CLEANUP_CANON_FLAG_HDR_RCPT))
+		did_rewrite |=
+		    cleanup_map11_tree(state, *tpp, cleanup_comm_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-
 	    if (cleanup_masq_domains
 		&& (cleanup_masq_flags & CLEANUP_MASQ_FLAG_HDR_RCPT))
-		cleanup_masquerade_tree(*tpp, cleanup_masq_domains);
+		did_rewrite |=
+		    cleanup_masquerade_tree(*tpp, cleanup_masq_domains);
 	}
     }
-    vstring_sprintf(header_buf, "%s: ", hdr_opts->name);
-    tok822_externalize(header_buf, tree, TOK822_STR_HEAD);
+    if (did_rewrite) {
+	vstring_truncate(header_buf, strlen(hdr_opts->name));
+	vstring_strcat(header_buf, ": ");
+	tok822_externalize(header_buf, tree, TOK822_STR_HEAD);
+    }
     myfree((char *) addr_list);
     tok822_free_tree(tree);
-    if ((hdr_opts->flags & HDR_OPT_DROP) == 0)
-	cleanup_fold_header(state, header_buf);
+    if ((hdr_opts->flags & HDR_OPT_DROP) == 0) {
+	if (did_rewrite)
+	    cleanup_fold_header(state, header_buf);
+	else
+	    cleanup_out_header(state, header_buf);
+    }
 }
 
 /* cleanup_act_log - log action with context */
@@ -289,6 +300,7 @@ static int cleanup_act(CLEANUP_STATE *state, char *context, const char *buf,
 {
     const char *optional_text = value + strcspn(value, " \t");
     int     command_len = optional_text - value;
+    VSTRING *bp;
 
     while (*optional_text && ISSPACE(*optional_text))
 	optional_text++;
@@ -348,6 +360,27 @@ static int cleanup_act(CLEANUP_STATE *state, char *context, const char *buf,
 	    cleanup_out_string(state, REC_TYPE_NORM, optional_text);
 	}
 	return (CLEANUP_ACT_KEEP);
+    }
+    if (STREQUAL(value, "REPLACE", command_len)) {
+	if (*optional_text == 0) {
+	    msg_warn("REPLACE action without text in %s map", map_class);
+	    return (CLEANUP_ACT_KEEP);
+	} else if (strcmp(context, CLEANUP_ACT_CTXT_HEADER) == 0) {
+	    if (!is_header(optional_text)) {
+		msg_warn("bad REPLACE header text \"%s\" in %s map, "
+			 "need \"headername: headervalue\"",
+			 optional_text, map_class);
+		return (CLEANUP_ACT_KEEP);
+	    } 
+	    /* XXX Impedance mismatch. */
+	    bp = vstring_strcpy(vstring_alloc(100), optional_text);
+	    cleanup_out_header(state, bp);
+	    vstring_free(bp);
+	} else {
+	    cleanup_out_string(state, REC_TYPE_NORM, optional_text);
+	}
+	cleanup_act_log(state, "replace", context, buf, optional_text);
+	return (CLEANUP_ACT_DROP);
     }
     if (STREQUAL(value, "REDIRECT", command_len)) {
 	if (strchr(optional_text, '@') == 0) {
@@ -508,9 +541,11 @@ static void cleanup_header_callback(void *context, int header_class,
 	if (CLEANUP_OUT_OK(state)) {
 	    if (hdr_opts->flags & HDR_OPT_RR)
 		state->resent = "Resent-";
-	    if (hdr_opts->flags & HDR_OPT_SENDER) {
+	    if ((hdr_opts->flags & HDR_OPT_SENDER)
+		&& state->hdr_rewrite_context) {
 		cleanup_rewrite_sender(state, hdr_opts, header_buf);
-	    } else if (hdr_opts->flags & HDR_OPT_RECIP) {
+	    } else if ((hdr_opts->flags & HDR_OPT_RECIP)
+		       && state->hdr_rewrite_context) {
 		cleanup_rewrite_recip(state, hdr_opts, header_buf);
 	    } else if ((hdr_opts->flags & HDR_OPT_DROP) == 0) {
 		cleanup_out_header(state, header_buf);

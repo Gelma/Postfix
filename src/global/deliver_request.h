@@ -44,6 +44,10 @@ typedef struct DELIVER_REQUEST {
     char   *client_addr;		/* client address */
     char   *client_proto;		/* client protocol */
     char   *client_helo;		/* helo parameter */
+    char   *sasl_method;		/* SASL method */
+    char   *sasl_username;		/* SASL user name */
+    char   *sasl_sender;		/* SASL sender */
+    char   *rewrite_context;		/* address rewrite context */
 } DELIVER_REQUEST;
 
  /*
@@ -62,6 +66,7 @@ typedef struct DELIVER_REQUEST {
 #define DEL_REQ_FLAG_VERIFY	(1<<8)	/* verify recipient, don't deliver */
 #define DEL_REQ_FLAG_EXPAND	(1<<9)	/* verify expansion, don't deliver */
 #define DEL_REQ_FLAG_RECORD	(1<<10)	/* record and deliver */
+#define DEL_REQ_FLAG_SCACHE	(1<<11)	/* opportunistic caching */
 
 #define DEL_REQ_TRACE_FLAGS_MASK \
 	(DEL_REQ_FLAG_VERIFY | DEL_REQ_FLAG_EXPAND | DEL_REQ_FLAG_RECORD)

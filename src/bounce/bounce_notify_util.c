@@ -345,12 +345,10 @@ BOUNCE_INFO *bounce_mail_one_init(const char *queue_name,
      * Initialize the bounce_info structure. Forge a logfile record for just
      * one recipient.
      */
-#define REALLY_BOUNCE	1
-
     log_handle = bounce_log_forge(orig_recipient, recipient, offset, dsn_status,
 				  dsn_action, why);
     bounce_info = bounce_mail_alloc("none", queue_name, queue_id,
-				    encoding, REALLY_BOUNCE, log_handle);
+				    encoding, BOUNCE_MSG_FAIL, log_handle);
     return (bounce_info);
 }
 
@@ -462,7 +460,7 @@ int     bounce_boilerplate(VSTREAM *bounce, BOUNCE_INFO *bounce_info)
     post_mail_fputs(bounce, "");
     if (bounce_info->flush == BOUNCE_MSG_FAIL) {
 	post_mail_fputs(bounce,
-	       "I'm sorry to have to inform you that your message could not be");
+	       "I'm sorry to have to inform you that your message could not");
 	post_mail_fputs(bounce,
 	       "be delivered to one or more recipients. It's attached below.");
     } else if (bounce_info->flush == BOUNCE_MSG_WARN) {

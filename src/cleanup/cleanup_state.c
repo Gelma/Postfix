@@ -44,6 +44,7 @@
 #include <been_here.h>
 #include <mail_params.h>
 #include <mime_state.h>
+#include <mail_proto.h>
 
 /* Application-specific. */
 
@@ -64,8 +65,6 @@ CLEANUP_STATE *cleanup_state_alloc(void)
     state->time = 0;
     state->fullname = 0;
     state->sender = 0;
-    state->from = 0;
-    state->resent_from = 0;
     state->recip = 0;
     state->orig_rcpt = 0;
     state->return_receipt = 0;
@@ -84,8 +83,10 @@ CLEANUP_STATE *cleanup_state_alloc(void)
     state->rcpt_count = 0;
     state->reason = 0;
     state->attr = nvtable_create(10);
+    nvtable_update(state->attr, MAIL_ATTR_ORIGIN, MAIL_ATTR_ORG_LOCAL);
     state->mime_state = 0;
     state->mime_errs = 0;
+    state->hdr_rewrite_context = MAIL_ATTR_RWR_LOCAL;
     state->filter = 0;
     state->redirect = 0;
     return (state);
@@ -101,10 +102,6 @@ void    cleanup_state_free(CLEANUP_STATE *state)
 	myfree(state->fullname);
     if (state->sender)
 	myfree(state->sender);
-    if (state->from)
-	myfree(state->from);
-    if (state->resent_from)
-	myfree(state->resent_from);
     if (state->recip)
 	myfree(state->recip);
     if (state->orig_rcpt)

@@ -131,6 +131,7 @@
 #include <verp_sender.h>
 #include <mail_proto.h>
 #include <qmgr_user.h>
+#include <split_addr.h>
 
 /* Client stubs. */
 
@@ -182,6 +183,10 @@ static QMGR_MESSAGE *qmgr_message_create(const char *queue_name,
     message->client_addr = 0;
     message->client_proto = 0;
     message->client_helo = 0;
+    message->sasl_method = 0;
+    message->sasl_username = 0;
+    message->sasl_sender = 0;
+    message->rewrite_context = 0;
     qmgr_rcpt_list_init(&message->rcpt_list);
     message->rcpt_count = 0;
     message->rcpt_limit = var_qmgr_msg_rcpt_limit;
@@ -229,8 +234,7 @@ static int qmgr_message_open(QMGR_MESSAGE *message)
 static void qmgr_message_oldstyle_scan(QMGR_MESSAGE *message)
 {
     VSTRING *buf;
-    long    orig_offset,
-            extra_offset;
+    long    orig_offset, extra_offset;
     int     rec_type;
     char   *start;
 
@@ -560,6 +564,34 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 		    myfree(message->client_helo);
 		message->client_helo = mystrdup(value);
 	    }
+	    if (strcmp(name, MAIL_ATTR_SASL_METHOD) == 0) {
+		if (message->sasl_method == 0)
+		    message->sasl_method = mystrdup(value);
+		else
+		    msg_warn("%s: ignoring multiple %s attribute: %s",
+			   message->queue_id, MAIL_ATTR_SASL_METHOD, value);
+	    }
+	    if (strcmp(name, MAIL_ATTR_SASL_USERNAME) == 0) {
+		if (message->sasl_username == 0)
+		    message->sasl_username = mystrdup(value);
+		else
+		    msg_warn("%s: ignoring multiple %s attribute: %s",
+			 message->queue_id, MAIL_ATTR_SASL_USERNAME, value);
+	    }
+	    if (strcmp(name, MAIL_ATTR_SASL_SENDER) == 0) {
+		if (message->sasl_sender == 0)
+		    message->sasl_sender = mystrdup(value);
+		else
+		    msg_warn("%s: ignoring multiple %s attribute: %s",
+			   message->queue_id, MAIL_ATTR_SASL_SENDER, value);
+	    }
+	    if (strcmp(name, MAIL_ATTR_RWR_CONTEXT) == 0) {
+		if (message->rewrite_context == 0)
+		    message->rewrite_context = mystrdup(value);
+		else
+		    msg_warn("%s: ignoring multiple %s attribute: %s",
+			   message->queue_id, MAIL_ATTR_RWR_CONTEXT, value);
+	    }
 	    /* Optional tracing flags. */
 	    else if (strcmp(name, MAIL_ATTR_TRACE_FLAGS) == 0) {
 		message->tflags = DEL_REQ_TRACE_FLAGS(atoi(value));
@@ -633,6 +665,14 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 	message->client_proto = mystrdup("");
     if (message->client_helo == 0)
 	message->client_helo = mystrdup("");
+    if (message->sasl_method == 0)
+	message->sasl_method = mystrdup("");
+    if (message->sasl_username == 0)
+	message->sasl_username = mystrdup("");
+    if (message->sasl_sender == 0)
+	message->sasl_sender = mystrdup("");
+    if (message->rewrite_context == 0)
+	message->rewrite_context = mystrdup(MAIL_ATTR_RWR_LOCAL);
 
     /*
      * Clean up.
@@ -980,10 +1020,9 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	 * agent resources. We use recipient@nexthop as queue name rather
 	 * than the actual recipient domain name, so that one recipient in
 	 * multiple equivalent domains cannot evade the per-recipient
-	 * concurrency limit. XXX Should split the address on the recipient
-	 * delimiter if one is defined, but doing a proper job requires
-	 * knowledge of local aliases. Yuck! I don't want to duplicate
-	 * delivery-agent specific knowledge in the queue manager.
+	 * concurrency limit. Split the address on the recipient delimiter if
+	 * one is defined, so that extended addresses don't get extra
+	 * delivery slots.
 	 * 
 	 * Fold the result to lower case so that we don't have multiple queues
 	 * for the same name.
@@ -991,18 +1030,32 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	 * Important! All recipients in a queue must have the same nexthop
 	 * value. It is OK to have multiple queues with the same nexthop
 	 * value, but only when those queues are named after recipients.
+	 * 
+	 * The single-recipient code below was written for local(8) like
+	 * delivery agents, and assumes that all domains that deliver to the
+	 * same (transport + nexthop) are aliases for $nexthop. Delivery
+	 * concurrency is changed from per-domain into per-recipient, by
+	 * changing the queue name from nexthop into localpart@nexthop.
+	 * 
+	 * XXX This assumption is incorrect when different destinations share
+	 * the same (transport + nexthop). In reality, such transports are
+	 * rarely configured to use single-recipient deliveries. The fix is
+	 * to decouple the per-destination recipient limit from the
+	 * per-destination concurrency.
 	 */
 	vstring_strcpy(queue_name, STR(reply.nexthop));
 	if (strcmp(transport->name, MAIL_SERVICE_ERROR) != 0
 	    && transport->recipient_limit == 1) {
+	    /* Copy the recipient localpart. */
 	    at = strrchr(STR(reply.recipient), '@');
 	    len = (at ? (at - STR(reply.recipient))
 		   : strlen(STR(reply.recipient)));
-	    VSTRING_SPACE(queue_name, len + 2);
-	    memmove(STR(queue_name) + len + 1, STR(queue_name),
-		    LEN(queue_name) + 1);
-	    memcpy(STR(queue_name), STR(reply.recipient), len);
-	    STR(queue_name)[len] = '@';
+	    vstring_strncpy(queue_name, STR(reply.recipient), len);
+	    /* Remove the address extension from the recipient localpart. */
+	    if (*var_rcpt_delim && split_addr(STR(queue_name), *var_rcpt_delim))
+		vstring_truncate(queue_name, strlen(STR(queue_name)));
+	    /* Assume the recipient domain is equivalent to nexthop. */
+	    vstring_sprintf_append(queue_name, "@%s", STR(reply.nexthop));
 	}
 	lowercase(STR(queue_name));
 
@@ -1165,6 +1218,14 @@ void    qmgr_message_free(QMGR_MESSAGE *message)
 	myfree(message->client_proto);
     if (message->client_helo)
 	myfree(message->client_helo);
+    if (message->sasl_method)
+	myfree(message->sasl_method);
+    if (message->sasl_username)
+	myfree(message->sasl_username);
+    if (message->sasl_sender)
+	myfree(message->sasl_sender);
+    if (message->rewrite_context)
+	myfree(message->rewrite_context);
     qmgr_rcpt_list_free(&message->rcpt_list);
     qmgr_message_count--;
     myfree((char *) message);
@@ -1214,10 +1275,17 @@ QMGR_MESSAGE *qmgr_message_alloc(const char *queue_name, const char *queue_id,
 	 * queue file and *before* resolving new recipients. Since all those
 	 * operations are encapsulated so nicely by this routine, the defer
 	 * log reset has to be done here as well.
+	 * 
+	 * Likewise remove a trace file with results from address verification,
+	 * "what if" testing, or verbose delivery.
 	 */
 	if (mail_queue_remove(MAIL_QUEUE_DEFER, queue_id) && errno != ENOENT)
 	    msg_fatal("%s: %s: remove %s %s: %m", myname,
 		      queue_id, MAIL_QUEUE_DEFER, queue_id);
+	if (message->tflags != 0
+	&& mail_queue_remove(MAIL_QUEUE_TRACE, queue_id) && errno != ENOENT)
+	    msg_fatal("%s: %s: remove %s %s: %m", myname,
+		      queue_id, MAIL_QUEUE_TRACE, queue_id);
 	qmgr_message_sort(message);
 	qmgr_message_resolve(message);
 	qmgr_message_sort(message);

@@ -111,7 +111,7 @@ int     forward_init(void)
 
 /* forward_open - open connection to cleanup service */
 
-static FORWARD_INFO *forward_open(char *sender)
+static FORWARD_INFO *forward_open(DELIVER_REQUEST *request, char *sender)
 {
     VSTRING *buffer = vstring_alloc(100);
     FORWARD_INFO *info;
@@ -154,6 +154,25 @@ static FORWARD_INFO *forward_open(char *sender)
     rec_fprintf(cleanup, REC_TYPE_TIME, "%ld", (long) info->posting_time);
     rec_fputs(cleanup, REC_TYPE_FROM, sender);
 
+    /*
+     * Zero-length attribute values are place holders for unavailable
+     * attribute values. See qmgr_message.c. They are not meant to be
+     * propagated to queue files.
+     */
+#define PASS_ATTR(fp, name, value) do { \
+    if ((value) && *(value)) \
+	rec_fprintf((fp), REC_TYPE_ATTR, "%s=%s", (name), (value)); \
+    } while (0)
+
+    PASS_ATTR(cleanup, MAIL_ATTR_CLIENT_NAME, request->client_name);
+    PASS_ATTR(cleanup, MAIL_ATTR_CLIENT_ADDR, request->client_addr);
+    PASS_ATTR(cleanup, MAIL_ATTR_PROTO_NAME, request->client_proto);
+    PASS_ATTR(cleanup, MAIL_ATTR_HELO_NAME, request->client_helo);
+    PASS_ATTR(cleanup, MAIL_ATTR_SASL_METHOD, request->sasl_method);
+    PASS_ATTR(cleanup, MAIL_ATTR_SASL_USERNAME, request->sasl_username);
+    PASS_ATTR(cleanup, MAIL_ATTR_SASL_SENDER, request->sasl_sender);
+    PASS_ATTR(cleanup, MAIL_ATTR_RWR_CONTEXT, request->rewrite_context);
+
     vstring_free(buffer);
     return (info);
 }
@@ -183,7 +202,7 @@ int     forward_append(DELIVER_ATTR attr)
 	htable_enter(forward_dt, attr.delivered, (char *) table_snd);
     }
     if ((info = (FORWARD_INFO *) htable_find(table_snd, attr.sender)) == 0) {
-	if ((info = forward_open(attr.sender)) == 0)
+	if ((info = forward_open(attr.request, attr.sender)) == 0)
 	    return (-1);
 	htable_enter(table_snd, attr.sender, (char *) info);
     }
@@ -232,8 +251,11 @@ static int forward_send(FORWARD_INFO *info, DELIVER_REQUEST *request,
 	    break;
 	status = (REC_PUT_BUF(info->cleanup, rec_type, buffer) != rec_type);
     }
-    if (status == 0 && rec_type != REC_TYPE_XTRA)
+    if (status == 0 && rec_type != REC_TYPE_XTRA) {
+	msg_warn("%s: bad record type: %d in message content",
+		 info->queue_id, rec_type);
 	status |= mark_corrupt(attr.fp);
+    }
 
     /*
      * Send the end-of-data marker only when there were no errors.

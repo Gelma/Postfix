@@ -209,6 +209,7 @@ int     lmtp_lhlo(LMTP_STATE *state)
 	XFORWARD_ADDR, LMTP_FEATURE_XFORWARD_ADDR,
 	XFORWARD_PROTO, LMTP_FEATURE_XFORWARD_PROTO,
 	XFORWARD_HELO, LMTP_FEATURE_XFORWARD_HELO,
+	XFORWARD_DOMAIN, LMTP_FEATURE_XFORWARD_DOMAIN,
 	0, 0,
     };
 
@@ -312,7 +313,7 @@ static int lmtp_loop(LMTP_STATE *state, NOCLOBBER int send_state,
     LMTP_RESP *resp;
     RECIPIENT *rcpt;
     VSTRING *next_command = vstring_alloc(100);
-    int *NOCLOBBER survivors = 0;
+    int    *NOCLOBBER survivors = 0;
     NOCLOBBER int next_state;
     NOCLOBBER int next_rcpt;
     NOCLOBBER int send_rcpt;
@@ -418,6 +419,12 @@ static int lmtp_loop(LMTP_STATE *state, NOCLOBBER int send_state,
 		vstring_sprintf_append(next_command, " %s=%s",
 		   XFORWARD_HELO, DEL_REQ_ATTR_AVAIL(request->client_helo) ?
 			       request->client_helo : XFORWARD_UNAVAILABLE);
+	    if (state->features & LMTP_FEATURE_XFORWARD_DOMAIN)
+		vstring_sprintf_append(next_command, " %s=%s", XFORWARD_DOMAIN,
+			 DEL_REQ_ATTR_AVAIL(request->rewrite_context) == 0 ?
+				       XFORWARD_UNAVAILABLE :
+		     strcmp(request->rewrite_context, MAIL_ATTR_RWR_LOCAL) ?
+				  XFORWARD_DOM_REMOTE : XFORWARD_DOM_LOCAL);
 	    next_state = LMTP_STATE_MAIL;
 	    break;
 
@@ -806,8 +813,11 @@ static int lmtp_loop(LMTP_STATE *state, NOCLOBBER int send_state,
 		smtp_fputs("", 0, session->stream);
 	    if (vstream_ferror(state->src))
 		msg_fatal("queue file read error");
-	    if (rec_type != REC_TYPE_XTRA)
+	    if (rec_type != REC_TYPE_XTRA) {
+		msg_warn("%s: bad record type: %d in message content",
+			 request->queue_id, rec_type);
 		RETURN(mark_corrupt(state->src));
+	    }
 	}
 
 	/*

@@ -38,12 +38,10 @@
 
 #include <mymalloc.h>
 #include <vstring.h>
-#include <vstream.h>
 
 /* Global library. */
 
-#include <mail_conf.h>
-#include <mime_state.h>
+#include <mail_params.h>
 
 /* Application-specific. */
 
@@ -57,21 +55,25 @@ SMTP_STATE *smtp_state_alloc(void)
     SMTP_STATE *state = (SMTP_STATE *) mymalloc(sizeof(*state));
 
     state->src = 0;
+    state->service = 0;
     state->request = 0;
     state->session = 0;
-    state->buffer = vstring_alloc(100);
-    state->scratch = vstring_alloc(100);
-    state->scratch2 = vstring_alloc(100);
     state->status = 0;
-    state->features = 0;
-    state->history = 0;
-    state->error_mask = 0;
-#ifdef USE_SASL_AUTH
-    smtp_sasl_connect(state);
-#endif
-    state->size_limit = 0;
     state->space_left = 0;
-    state->mime_state = 0;
+    state->nexthop_domain = 0;
+    if (var_smtp_cache_conn) {
+	state->dest_label = vstring_alloc(10);
+	state->dest_prop = vstring_alloc(10);
+	state->endp_label = vstring_alloc(10);
+	state->endp_prop = vstring_alloc(10);
+	state->cache_used = htable_create(1);
+    } else {
+	state->dest_label = 0;
+	state->dest_prop = 0;
+	state->endp_label = 0;
+	state->endp_prop = 0;
+	state->cache_used = 0;
+    }
     return (state);
 }
 
@@ -79,13 +81,15 @@ SMTP_STATE *smtp_state_alloc(void)
 
 void    smtp_state_free(SMTP_STATE *state)
 {
-    vstring_free(state->buffer);
-    vstring_free(state->scratch);
-    vstring_free(state->scratch2);
-#ifdef USE_SASL_AUTH
-    smtp_sasl_cleanup(state);
-#endif
-    if (state->mime_state)
-	mime_state_free(state->mime_state);
+    if (state->dest_label)
+	vstring_free(state->dest_label);
+    if (state->dest_prop)
+	vstring_free(state->dest_prop);
+    if (state->endp_label)
+	vstring_free(state->endp_label);
+    if (state->endp_prop)
+	vstring_free(state->endp_prop);
+    if (state->cache_used)
+	htable_free(state->cache_used, (void (*) (char *)) 0);
     myfree((char *) state);
 }

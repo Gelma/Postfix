@@ -72,6 +72,7 @@
   */
 CLNT_STREAM *rewrite_clnt_stream = 0;
 
+static VSTRING *last_rule;
 static VSTRING *last_addr;
 static VSTRING *last_result;
 
@@ -80,11 +81,13 @@ static VSTRING *last_result;
 VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
 {
     VSTREAM *stream;
+    int     server_flags;
 
     /*
      * One-entry cache.
      */
     if (last_addr == 0) {
+	last_rule = vstring_alloc(10);
 	last_addr = vstring_alloc(100);
 	last_result = vstring_alloc(100);
     }
@@ -102,10 +105,9 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
 
     /*
      * Peek at the cache.
-     * 
-     * XXX Must be made "rule" specific.
      */
-    if (strcmp(addr, STR(last_addr)) == 0) {
+    if (strcmp(addr, STR(last_addr)) == 0
+	&& strcmp(rule, STR(last_rule)) == 0) {
 	vstring_strcpy(result, STR(last_result));
 	if (msg_verbose)
 	    msg_info("rewrite_clnt: cached: %s: %s -> %s",
@@ -134,8 +136,9 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
 		       ATTR_TYPE_END) != 0
 	    || vstream_fflush(stream)
 	    || attr_scan(stream, ATTR_FLAG_STRICT,
+			 ATTR_TYPE_NUM, MAIL_ATTR_FLAGS, &server_flags,
 			 ATTR_TYPE_STR, MAIL_ATTR_ADDR, result,
-			 ATTR_TYPE_END) != 1) {
+			 ATTR_TYPE_END) != 2) {
 	    if (msg_verbose || (errno != EPIPE && errno != ENOENT))
 		msg_warn("problem talking to service %s: %m",
 			 var_rewrite_service);
@@ -143,6 +146,9 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
 	    if (msg_verbose)
 		msg_info("rewrite_clnt: %s: %s -> %s",
 			 rule, addr, vstring_str(result));
+	    /* Server-requested disconnect. */
+	    if (server_flags != 0)
+		clnt_stream_recover(rewrite_clnt_stream);
 	    break;
 	}
 	sleep(1);				/* XXX make configurable */
@@ -152,6 +158,7 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
     /*
      * Update the cache.
      */
+    vstring_strcpy(last_rule, rule);
     vstring_strcpy(last_addr, addr);
     vstring_strcpy(last_result, STR(result));
 

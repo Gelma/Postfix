@@ -156,7 +156,7 @@ OPENSTEP 4.x <br>
 OSF1.V3 - OSF1.V5 (Digital UNIX) <br>
 Reliant UNIX 5.x <br>
 Rhapsody 5.x <br>
-SunOS 4.1.4 (January 2004) <br>
+SunOS 4.1.4 (February 2005) <br>
 SunOS 5.4 - 5.9 (Solaris 2.4..9) <br>
 Ultrix 4.x (well, that was long ago) <br>
 </p>
@@ -257,13 +257,16 @@ Postfix 2.0 </td> </tr>
 <tr> <td> SASL authentication </td> <td>SASL_README</td> <td>
 Postfix 1.0 </td> </tr>
 
+<tr> <td> STARTTLS session encryption </td> <td>TLS_README</td> <td>
+Postfix 2.2 </td> </tr>
+
 </table>
 
 </blockquote>
 
-<p> Note: support for TLS (encrypted SMTP sessions and certificate
-based authentication) and for IP version 6 is still separate from
-Postfix but is expected to be merged soon. </p>
+<p> Note: IP version 6 support is compiled into Postfix on operating
+systems that have IPv6 support. See the IPV6_README file for details.
+</p>
 
 <h3>4.4 - Overriding built-in parameter default settings</h3>
 
@@ -952,9 +955,23 @@ systems. </p>
 so that it listens on a socket inside the Postfix queue directory.
 Examples for specific systems: </p>
 
-<p> FreeBSD: <tt>syslogd -l /var/spool/postfix/var/run/log</tt> </p>
+<dl>
 
-<p> Linux, OpenBSD: <tt>syslogd -a /var/spool/postfix/dev/log</tt> </p>
+<dt> FreeBSD: </dt>
+
+<dd> <pre>
+# mkdir -p /var/spool/postfix/var/run
+# syslogd -l /var/spool/postfix/var/run/log
+</pre> </dd>
+
+<dt> Linux, OpenBSD: </dt>
+
+<dd> <pre>
+# mkdir -p /var/spool/postfix/dev
+# syslogd -a /var/spool/postfix/dev/log
+</pre> </dd>
+
+</dl>
 
 <h2><a name="care">12 - Care and feeding of the Postfix system</a></h2>
 

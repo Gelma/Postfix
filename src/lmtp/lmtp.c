@@ -64,12 +64,12 @@
 /* CONFIGURATION PARAMETERS
 /* .ad
 /* .fi
-/*	Changes to \fBmain.cf\fR are picked up automatically, as lmtp(8)
+/*	Changes to \fBmain.cf\fR are picked up automatically, as \fBlmtp\fR(8)
 /*	processes run for only a limited amount of time. Use the command
 /*	"\fBpostfix reload\fR" to speed up a change.
 /*
 /*	The text below provides only a parameter summary. See
-/*	postconf(5) for more details including examples.
+/*	\fBpostconf\fR(5) for more details including examples.
 /* COMPATIBILITY CONTROLS
 /* .ad
 /* .fi
@@ -157,9 +157,9 @@
 /* .IP "\fBlmtp_data_done_timeout (600s)\fR"
 /*	The LMTP client time limit for sending the LMTP ".", and for
 /*	receiving the server response.
-/* .IP "\fBlmtp_rset_timeout (120s)\fR"
-/*	The LMTP client time limit for sending the RSET command, and for
-/*	receiving the server response.
+/* .IP "\fBlmtp_rset_timeout (20s)\fR"
+/*	The LMTP client time limit for sending the RSET command, and
+/*	for receiving the server response.
 /* .IP "\fBlmtp_quit_timeout (300s)\fR"
 /*	The LMTP client time limit for sending the QUIT command, and for
 /*	receiving the server response.
@@ -200,6 +200,7 @@
 /*	bounce(8), delivery status reports
 /*	qmgr(8), queue manager
 /*	postconf(5), configuration parameters
+/*	master(5), generic daemon options
 /*	services(4), Internet services and aliases
 /*	master(8), process manager
 /*	syslogd(8), system logging
@@ -330,7 +331,7 @@ static int deliver_message(DELIVER_REQUEST *request, char **unused_argv)
      * Note: `state' was made global (to this file) so that we can cache
      * connections and so that we can close a cached connection via the
      * MAIL_SERVER_EXIT function (cleanup). The alloc for `state' is
-     * performed in the MAIL_SERVER_PRE_INIT function (pre_init).
+     * performed in the MAIL_SERVER_POST_INIT function (post_init).
      * 
      */
     why = vstring_alloc(100);

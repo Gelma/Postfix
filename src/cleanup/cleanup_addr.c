@@ -76,6 +76,7 @@
 #include <mail_addr.h>
 #include <canon_addr.h>
 #include <mail_addr_find.h>
+#include <mail_proto.h>
 
 /* Application-specific. */
 
@@ -91,7 +92,14 @@ void    cleanup_addr_sender(CLEANUP_STATE *state, const char *buf)
     VSTRING *clean_addr = vstring_alloc(100);
     const char *bcc;
 
-    cleanup_rewrite_internal(clean_addr, buf);
+    /*
+     * Note: an unqualified envelope address is for all practical purposes
+     * equivalent to a fully qualified local address, both for delivery and
+     * for replying. Having to support both forms is error prone, therefore
+     * an incomplete envelope address is rewritten to fully qualified form in
+     * the local domain context.
+     */
+    cleanup_rewrite_internal(MAIL_ATTR_RWR_LOCAL, clean_addr, buf);
     if (strncasecmp(STR(clean_addr), MAIL_ADDR_MAIL_DAEMON "@",
 		    sizeof(MAIL_ADDR_MAIL_DAEMON)) == 0) {
 	canon_addr_internal(state->temp1, MAIL_ADDR_MAIL_DAEMON);
@@ -99,10 +107,12 @@ void    cleanup_addr_sender(CLEANUP_STATE *state, const char *buf)
 	    vstring_strcpy(clean_addr, "");
     }
     if (state->flags & CLEANUP_FLAG_MAP_OK) {
-	if (cleanup_send_canon_maps)
+	if (cleanup_send_canon_maps
+	    && (cleanup_send_canon_flags & CLEANUP_CANON_FLAG_ENV_FROM))
 	    cleanup_map11_internal(state, clean_addr, cleanup_send_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-	if (cleanup_comm_canon_maps)
+	if (cleanup_comm_canon_maps
+	    && (cleanup_comm_canon_flags & CLEANUP_CANON_FLAG_ENV_FROM))
 	    cleanup_map11_internal(state, clean_addr, cleanup_comm_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
 	if (cleanup_masq_domains
@@ -128,12 +138,22 @@ void    cleanup_addr_recipient(CLEANUP_STATE *state, const char *buf)
     VSTRING *clean_addr = vstring_alloc(100);
     const char *bcc;
 
-    cleanup_rewrite_internal(clean_addr, *buf ? buf : var_empty_addr);
+    /*
+     * Note: an unqualified envelope address is for all practical purposes
+     * equivalent to a fully qualified local address, both for delivery and
+     * for replying. Having to support both forms is error prone, therefore
+     * an incomplete envelope address is rewritten to fully qualified form in
+     * the local domain context.
+     */
+    cleanup_rewrite_internal(MAIL_ATTR_RWR_LOCAL,
+			     clean_addr, *buf ? buf : var_empty_addr);
     if (state->flags & CLEANUP_FLAG_MAP_OK) {
-	if (cleanup_rcpt_canon_maps)
+	if (cleanup_rcpt_canon_maps
+	    && (cleanup_rcpt_canon_flags & CLEANUP_CANON_FLAG_ENV_RCPT))
 	    cleanup_map11_internal(state, clean_addr, cleanup_rcpt_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-	if (cleanup_comm_canon_maps)
+	if (cleanup_comm_canon_maps
+	    && (cleanup_comm_canon_flags & CLEANUP_CANON_FLAG_ENV_RCPT))
 	    cleanup_map11_internal(state, clean_addr, cleanup_comm_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
 	if (cleanup_masq_domains
@@ -158,12 +178,18 @@ void    cleanup_addr_bcc(CLEANUP_STATE *state, const char *bcc)
 {
     VSTRING *clean_addr = vstring_alloc(100);
 
-    cleanup_rewrite_internal(clean_addr, bcc);
+    /*
+     * Note: BCC addresses are supplied locally, and must be rewritten in the
+     * local address rewriting context.
+     */
+    cleanup_rewrite_internal(MAIL_ATTR_RWR_LOCAL, clean_addr, bcc);
     if (state->flags & CLEANUP_FLAG_MAP_OK) {
-	if (cleanup_rcpt_canon_maps)
+	if (cleanup_rcpt_canon_maps
+	    && (cleanup_rcpt_canon_flags & CLEANUP_CANON_FLAG_ENV_RCPT))
 	    cleanup_map11_internal(state, clean_addr, cleanup_rcpt_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
-	if (cleanup_comm_canon_maps)
+	if (cleanup_comm_canon_maps
+	    && (cleanup_comm_canon_flags & CLEANUP_CANON_FLAG_ENV_RCPT))
 	    cleanup_map11_internal(state, clean_addr, cleanup_comm_canon_maps,
 				cleanup_ext_prop_mask & EXT_PROP_CANONICAL);
 	if (cleanup_masq_domains

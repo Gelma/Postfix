@@ -31,6 +31,7 @@ while(<>) {
 	$block .= $_;
     } while(($_ = <>) && /\S/);
 
+    $block =~ s/\n\./\n\\\&./g;
     if ($block =~ /<H2>/) {
 	$block =~ s/<H2><a[^>]+>([^<]+)<\/a><\/H2>/\n.SH \1\n/g;
 	$block =~ tr/a-z/A-Z/;
@@ -57,7 +58,7 @@ while(<>) {
     #$block =~ s/<\/ul>/\n.PP\n/g;
     $block =~ s/<\/dl>/\n/g;
     $block =~ s/<\/ul>/\n/g;
-    $block =~ s/<dd>/\n/g;
+    $block =~ s/<dd>\s*/\n/g;
     $block =~ s/<\/dd>/\n/g;
     $block =~ s/<li>\s*/\n.IP \\(bu\n/g;
     $block =~ s/<dt>\s*/\n.IP "/g;
@@ -68,8 +69,10 @@ while(<>) {
     $block =~ s/<br>\s*/\n.br\n/g;
     $block =~ s/&lt;/</g;
     $block =~ s/&gt;/>/g;
+    $block =~ s/&amp;/\&/g;
     $block =~ s/\s+\n/\n/g;
     $block =~ s/^\n//g;
+    $block =~ s/([a-z][_a-zA-Z0-9-]*)(\([0-9]\))/\\fB\1\\fR\2/g;
     print $block;
     $wantpp = !($block =~ /^\.(SH|IP)/);
 }

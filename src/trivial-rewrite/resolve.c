@@ -65,7 +65,6 @@
 
 #include <mail_params.h>
 #include <mail_proto.h>
-#include <rewrite_clnt.h>
 #include <resolve_local.h>
 #include <mail_conf.h>
 #include <quote_822_local.h>
@@ -75,6 +74,7 @@
 #include <match_parent_style.h>
 #include <maps.h>
 #include <mail_addr_find.h>
+#include <valid_mailhost_addr.h>
 
 /* Application-specific. */
 
@@ -279,7 +279,7 @@ static void resolve_addr(RES_CONTEXT *rp, char *addr,
 	if (tok822_rfind_type(tree->tail, '@')
 	    || (var_swap_bangpath && tok822_rfind_type(tree->tail, '!'))
 	    || (var_percent_hack && tok822_rfind_type(tree->tail, '%'))) {
-	    rewrite_tree(REWRITE_CANON, tree);
+	    rewrite_tree(&local_context, tree);
 	    continue;
 	}
 
@@ -306,7 +306,7 @@ static void resolve_addr(RES_CONTEXT *rp, char *addr,
 	    }
 	    tok822_free(tree->head);
 	    tree->head = tok822_scan(STR(addr_buf), &tree->tail);
-	    rewrite_tree(REWRITE_CANON, tree);
+	    rewrite_tree(&local_context, tree);
 	    continue;
 	}
 
@@ -357,12 +357,16 @@ static void resolve_addr(RES_CONTEXT *rp, char *addr,
      * XXX This may produce incorrect results if we cracked open a quoted
      * local-part with routing operators; see discussion above at the top of
      * the big loop.
+     * 
+     * XXX We explicitly disallow domain names in bare network address form. A
+     * network address destination should be formatted according to RFC 2821:
+     * it should be enclosed in [], and an IPv6 address should have an IPv6:
+     * prefix.
      */
     tok822_internalize(nextrcpt, tree, TOK822_STR_DEFL);
     rcpt_domain = strrchr(STR(nextrcpt), '@') + 1;
-    if (*rcpt_domain == '[' ? !valid_hostliteral(rcpt_domain, DONT_GRIPE) :
-	(!valid_hostname(rcpt_domain, DONT_GRIPE)
-	 || valid_hostaddr(rcpt_domain, DONT_GRIPE)))
+    if (*rcpt_domain == '[' ? !valid_mailhost_literal(rcpt_domain, DONT_GRIPE) :
+	!valid_hostname(rcpt_domain, DONT_GRIPE))
 	*flags |= RESOLVE_FLAG_ERROR;
     tok822_free_tree(tree);
     tree = 0;
@@ -636,6 +640,7 @@ int     resolve_proto(RES_CONTEXT *context, VSTREAM *stream)
 		 STR(nexthop), STR(nextrcpt), flags);
 
     attr_print(stream, ATTR_FLAG_NONE,
+	       ATTR_TYPE_NUM, MAIL_ATTR_FLAGS, server_flags,
 	       ATTR_TYPE_STR, MAIL_ATTR_TRANSPORT, STR(channel),
 	       ATTR_TYPE_STR, MAIL_ATTR_NEXTHOP, STR(nexthop),
 	       ATTR_TYPE_STR, MAIL_ATTR_RECIP, STR(nextrcpt),
