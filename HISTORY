@@ -3527,3 +3527,10 @@ Apologies for any names omitted.
 	for virtual users.  The SMTP server now explicitly tests
 	for this common error and logs a warning instead of refusing
 	the mail.  File:  smtpd/smtpd_check.c.
+
+20000103
+
+	Bugfix: a case sensitivity bug had slipped through in the
+	anti-relaying code, causing mail for USER@VIRTUAL.DOMAIN
+	to be rejected with "relay access denied". This was found
+	by Jim Maenpaa @ jmm.com.

@@ -811,6 +811,7 @@ static int permit_auth_destination(char *recipient)
      */
     canon_addr_internal(query, recipient);
     resolve_clnt_query(STR(query), &reply);
+    lowercase(STR(reply.recipient));
 
     /*
      * Handle special case that is not supposed to happen.
@@ -947,6 +948,7 @@ static int permit_mx_backup(SMTPD_STATE *unused_state, const char *recipient)
      */
     canon_addr_internal(query, recipient);
     resolve_clnt_query(STR(query), &reply);
+    lowercase(STR(reply.recipient));
 
     /*
      * If the destination is local, it is acceptable, because we are
@@ -1088,6 +1090,7 @@ static int reject_unknown_address(SMTPD_STATE *state, char *addr,
      */
     canon_addr_internal(query, addr);
     resolve_clnt_query(STR(query), &reply);
+    lowercase(STR(reply.recipient));
 
     /*
      * Skip local destinations and non-DNS forms.
@@ -1369,6 +1372,7 @@ static int check_mail_access(SMTPD_STATE *state, char *table, char *addr,
      */
     canon_addr_internal(query, addr);
     resolve_clnt_query(STR(query), &reply);
+    lowercase(STR(reply.recipient));
 
     /*
      * Garbage in, garbage out. Every address from canon_addr_internal() and
@@ -1929,6 +1933,7 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
      */
     canon_addr_internal(query, recipient);
     resolve_clnt_query(STR(query), &reply);
+    lowercase(STR(reply.recipient));
 
     /*
      * Skip non-DNS forms. Skip non-local numerical forms.
