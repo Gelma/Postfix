@@ -3885,3 +3885,13 @@ Apologies for any names omitted.
 	parallel connections to the same site) was too gentle and
 	Postfix would back off too quickly.  Final solution by
 	Patrik Rak. File: qmgr/qmgr_message.c.
+
+20001208
+
+	Bugfix: while processing massive amounts of one-recipient
+	mail, qmgr could deadlock for 10 seconds while sending a
+	bounce message. All queue manager bounce send requests are
+	now implemented asynchronously.  Files: global/abounce.[hc]
+	(asynchronous bounce client), qmgr/qmgr_active.c.  Problem
+	reported by El Bunzo (webpower.nl) and Tiger Technologies
+	(tigertech.com).
