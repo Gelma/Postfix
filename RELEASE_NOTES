@@ -7,7 +7,7 @@ files while delivering to files specified in aliases/forward/include
 files. This is a no-op when the recipient lacks directory write
 permission.
 
-- The LDAP client code no longer looks up name containing "*"
+- The LDAP client code no longer looks up a name containing "*"
 because it could be abused.  See the LDAP_README file for how to
 restore previous behavior.
 

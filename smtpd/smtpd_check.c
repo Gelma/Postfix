@@ -1372,7 +1372,7 @@ static int generic_checks(SMTPD_STATE *state, char *name,
     /*
      * Sender mail address restrictions.
      */
-    if (is_map_command(name, CHECK_SENDER_ACL, cpp) && state->sender) {
+    if (is_map_command(name, CHECK_SENDER_ACL, cpp)) {
 	if (state->sender)
 	    *status = check_mail_access(state, **cpp, state->sender,
 					state->sender, SMTPD_NAME_SENDER);

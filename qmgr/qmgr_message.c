@@ -490,6 +490,24 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	}
 
 	/*
+	 * Bounce recipient addresses that start with `-'. External commands
+	 * may misinterpret such addresses as command-line options.
+	 * 
+	 * In theory I could say people should always carefully set up their
+	 * master.cf pipe mailer entries with `--' before the first
+	 * non-option argument, but mistakes will happen regardless.
+	 * 
+	 * Therefore the protection is put in place here, in the queue manager,
+	 * where it cannot be bypassed.
+	 */
+	if (recipient->address[0] == '-') {
+	    qmgr_bounce_recipient(message, recipient,
+				  "invalid recipient syntax: \"%s\"",
+				  recipient->address);
+	    continue;
+	}
+
+	/*
 	 * Queues are identified by the transport name and by the next-hop
 	 * hostname. When the destination is local (no next hop), derive the
 	 * queue name from the recipient name. XXX Should split the address
