@@ -245,6 +245,7 @@ extern void qmgr_message_free(QMGR_MESSAGE *);
 extern void qmgr_message_update_warn(QMGR_MESSAGE *);
 extern QMGR_MESSAGE *qmgr_message_alloc(const char *, const char *, int);
 extern QMGR_MESSAGE *qmgr_message_realloc(QMGR_MESSAGE *);
+extern void qmgr_message_route(QMGR_MESSAGE *);
 
  /*
   * qmgr_defer.c

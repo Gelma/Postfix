@@ -229,8 +229,15 @@ void    qmgr_active_feed(QMGR_SCAN *scan_info, const char *queue_id)
 		      queue_id, MAIL_QUEUE_DEFER, queue_id);
 
 	/*
+	 * Resolve recipient destinations and assign transports. This will
+	 * also defer or bounce recipients.
+	 */
+	qmgr_message_route(message);
+
+	/*
 	 * Special case if all recipients were already delivered. Send any
-	 * bounces and clean up.
+	 * bounces and clean up. Or, when all recipients were bounced or
+	 * deferred, go look for more.
 	 */
 	if (message->refcount == 0)
 	    qmgr_active_done(message);
@@ -303,6 +310,18 @@ void    qmgr_active_done(QMGR_MESSAGE *message)
 	    qmgr_active_corrupt(message->queue_id);
 	    qmgr_message_free(message);
 	} else {
+
+	    /*
+	     * Resolve recipient destinations and assign transports. This
+	     * will also defer or bounce recipients.
+	     */
+	    qmgr_message_route(message);
+
+	    /*
+	     * Special case if all recipients were already delivered. Send
+	     * any bounces and clean up. Or, when all recipients were bounced
+	     * or deferred, go look for more.
+	     */
 	    if (message->refcount == 0)
 		qmgr_active_done(message);	/* recurse for consistency */
 	}

@@ -3061,3 +3061,10 @@ Apologies for any names omitted.
 	order to protect external commands against surprises.
 	Credits to Mads Kiilerich @ Kiilerich.com.  File:
 	qmgr/qmgr_message.c.
+
+	Bugfix: after 19990831, the queue manager would throw away
+	defer logs after deferring mail to known-to-be-dead hosts
+	or message transports. This means that in some cases, mailq
+	would not show why mail is delayed, and that delayed mail
+	could be sent back with recipients missing from the error
+	report. Reported by Giulio Orsero @ tiscalinet.it.
