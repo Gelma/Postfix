@@ -19,7 +19,7 @@ manager of its arrival.
 The \fBcleanup\fR daemon always performs the following transformations:
 .IP \(bu
 Insert missing message headers: (\fBResent-\fR) \fBFrom:\fR,
-\fBMessage-Id:\fR, and \fBDate:\fR.
+\fBTo:\fR, \fBMessage-Id:\fR, and \fBDate:\fR.
 .IP \(bu
 Extract envelope recipient addresses from (\fBResent-\fR) \fBTo:\fR,
 \fBCc:\fR and \fBBcc:\fR message headers when no recipients are
@@ -74,6 +74,15 @@ The following \fBmain.cf\fR parameters are especially relevant to
 this program. See the Postfix \fBmain.cf\fR file for syntax details
 and for default values. Use the \fBpostfix reload\fR command after
 a configuration change.
+.SH Content filtering
+.IP \fBbody_checks\fR
+Lookup tables with content filters for message body lines.
+These filters see physical lines one at a time, in chunks of
+at most line_length_limit bytes.
+.IP \fBheader_checks\fR
+Lookup tables with content filters for message header lines.
+These filters see logical headers one at a time, including headers
+that span multiple lines.
 .SH Miscellaneous
 .ad
 .fi
@@ -81,6 +90,9 @@ a configuration change.
 Address to send a copy of each message that enters the system.
 .IP \fBhopcount_limit\fR
 Limit the number of \fBReceived:\fR message headers.
+.IP \fBundisclosed_recipients_header\fR
+The header line that is inserted when no recipients were
+specified in (Resent-)To: or (Resent-)Cc: message headers.
 .SH "Address transformations"
 .ad
 .fi
@@ -109,6 +121,8 @@ Address mapping lookup table for envelope recipient addresses.
 Limit the number of envelope recipients that are remembered.
 .IP \fBheader_size_limit\fR
 Limit the amount of memory in bytes used to process a message header.
+.IP \fBextract_recipient_limit\fR
+Limit the amount of recipients extracted from message headers.
 .SH SEE ALSO
 .na
 .nf

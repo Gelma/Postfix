@@ -20,7 +20,7 @@ CLEANUP(8)                                             CLEANUP(8)
        mations:
 
        <b>o</b>      Insert missing message  headers:  (<b>Resent-</b>)  <b>From:</b>,
-              <b>Message-Id:</b>, and <b>Date:</b>.
+              <b>To:</b>, <b>Message-Id:</b>, and <b>Date:</b>.
 
        <b>o</b>      Extract envelope recipient addresses from (<b>Resent-</b>)
               <b>To:</b>, <b>Cc:</b> and <b>Bcc:</b> message headers when  no  recipi-
@@ -57,7 +57,7 @@ CLEANUP(8)                                             CLEANUP(8)
        message back to the sender in case of trouble.
 
 <b>STANDARDS</b>
-       RFC 822 (ARPA Internet Text Messages)
+       <a href="http://www.faqs.org/rfcs/rfc822.html">RFC 822</a> (ARPA Internet Text Messages)
 
 
 
@@ -84,6 +84,18 @@ CLEANUP(8)                                             CLEANUP(8)
        details  and  for  default  values. Use the <b>postfix</b> <b>reload</b>
        command after a configuration change.
 
+<b>Content</b> <b>filtering</b>
+       <b>body</b><i>_</i><b>checks</b>
+              Lookup tables with content filters for message body
+              lines.   These  filters see physical lines one at a
+              time, in chunks of at most line_length_limit bytes.
+
+       <b>header</b><i>_</i><b>checks</b>
+              Lookup  tables  with  content  filters  for message
+              header lines.  These filters  see  logical  headers
+              one at a time, including headers that span multiple
+              lines.
+
 <b>Miscellaneous</b>
        <b>always</b><i>_</i><b>bcc</b>
               Address to send a copy of each message that  enters
@@ -91,6 +103,11 @@ CLEANUP(8)                                             CLEANUP(8)
 
        <b>hopcount</b><i>_</i><b>limit</b>
               Limit the number of <b>Received:</b> message headers.
+
+       <b>undisclosed</b><i>_</i><b>recipients</b><i>_</i><b>header</b>
+              The header line that is inserted when no recipients
+              were specified in (Resent-)To: or (Resent-)Cc: mes-
+              sage headers.
 
 <b>Address</b> <b>transformations</b>
        <b>empty</b><i>_</i><b>address</b><i>_</i><b>recipient</b>
@@ -108,6 +125,18 @@ CLEANUP(8)                                             CLEANUP(8)
 
        <b>sender</b><i>_</i><b>canonical</b><i>_</i><b>maps</b>
               Address  mapping  lookup  table  for  envelope  and
+
+
+
+                                                                2
+
+
+
+
+
+CLEANUP(8)                                             CLEANUP(8)
+
+
               header sender addresses.
 
        <b>masquerade</b><i>_</i><b>domains</b>
@@ -125,23 +154,15 @@ CLEANUP(8)                                             CLEANUP(8)
 <b>Resource</b> <b>controls</b>
        <b>duplicate</b><i>_</i><b>filter</b><i>_</i><b>limit</b>
               Limit  the  number  of envelope recipients that are
-
-
-
-                                                                2
-
-
-
-
-
-CLEANUP(8)                                             CLEANUP(8)
-
-
               remembered.
 
        <b>header</b><i>_</i><b>size</b><i>_</i><b>limit</b>
               Limit the amount of memory in bytes used to process
               a message header.
+
+       <b>extract</b><i>_</i><b>recipient</b><i>_</i><b>limit</b>
+              Limit  the amount of recipients extracted from mes-
+              sage headers.
 
 <b>SEE</b> <b>ALSO</b>
        <a href="canonical.5.html">canonical(5)</a> canonical address lookup table format
@@ -155,7 +176,7 @@ CLEANUP(8)                                             CLEANUP(8)
        /etc/postfix/virtual*, virtual mapping table
 
 <b>LICENSE</b>
-       The  Secure  Mailer  license must be distributed with this
+       The Secure Mailer license must be  distributed  with  this
        software.
 
 <b>AUTHOR(S)</b>
@@ -163,27 +184,6 @@ CLEANUP(8)                                             CLEANUP(8)
        IBM T.J. Watson Research
        P.O. Box 704
        Yorktown Heights, NY 10598, USA
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

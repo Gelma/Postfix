@@ -6,6 +6,7 @@
 PATH=/bin:/usr/bin:/usr/sbin:/usr/etc:/sbin:/etc
 umask 022
 
+test -t 0 &&
 cat <<EOF
 
 Warning: this script replaces existing sendmail or Postfix programs.
@@ -45,8 +46,13 @@ EOF
 # the time that a file does not exist, and avoid copying over programs
 # in order to not disturb running programs.
 
+censored_ls() {
+    ls "$@" | egrep -v '^\.|/\.|CVS|RCS|SCCS'
+}
+
 compare_or_replace() {
-    cmp $2 $3 >/dev/null 2>&1 || {
+    (cmp $2 $3 >/dev/null 2>&1 && echo Skipping $3...) || {
+	echo Updating $3...
 	rm -f $tempdir/junk || exit 1
 	cp $2 $tempdir/junk || exit 1
 	chmod $1 $tempdir/junk || exit 1
@@ -56,7 +62,8 @@ compare_or_replace() {
 }
 
 compare_or_symlink() {
-    cmp $1 $2 >/dev/null 2>&1 || {
+    (cmp $1 $2 >/dev/null 2>&1 && echo Skipping $2...) || {
+	echo Updating $2...
 	rm -f $tempdir/junk || exit 1
 	dest=`echo $1 | sed '
 	    s;^'$install_root';;
@@ -84,7 +91,8 @@ compare_or_symlink() {
 }
 
 compare_or_move() {
-    cmp $2 $3 >/dev/null 2>&1 || {
+    (cmp $2 $3 >/dev/null 2>&1 && echo Skipping $3...) || {
+	echo Updating $3...
 	mv -f $2 $3 || exit 1
 	chmod $1 $3 || exit 1
     }
@@ -99,21 +107,25 @@ esac
 
 # Default settings. Most are clobbered by remembered settings.
 
-install_root=/
-tempdir=`pwd`
-config_directory=/etc/postfix
-daemon_directory=/usr/libexec/postfix
-command_directory=/usr/sbin
-queue_directory=/var/spool/postfix
-sendmail_path=/usr/sbin/sendmail
-newaliases_path=/usr/bin/newaliases
-mailq_path=/usr/bin/mailq
-mail_owner=postfix
-setgid=no
-manpages=/usr/local/man
+: ${install_root=/}
+: ${tempdir=`pwd`}
+: ${config_directory=/etc/postfix}
+: ${daemon_directory=/usr/libexec/postfix}
+: ${command_directory=/usr/sbin}
+: ${queue_directory=/var/spool/postfix}
+if [ -f /usr/lib/sendmail ]
+    then : ${sendmail_path=/usr/lib/sendmail}
+    else : ${sendmail_path=/usr/sbin/sendmail}
+fi
+: ${newaliases_path=/usr/bin/newaliases}
+: ${mailq_path=/usr/bin/mailq}
+: ${mail_owner=postfix}
+: ${setgid=no}
+: ${manpages=/usr/local/man}
 
 # Find out the location of configuration files.
 
+test -t 0 &&
 for name in install_root tempdir config_directory
 do
     while :
@@ -158,6 +170,7 @@ test -f $CONFIG_DIRECTORY/install.cf && . $CONFIG_DIRECTORY/install.cf
 
 # Override default settings.
 
+test -t 0 &&
 for name in daemon_directory command_directory \
     queue_directory sendmail_path newaliases_path mailq_path mail_owner\
     setgid manpages
@@ -239,12 +252,12 @@ done
 
 # Install files. Be careful to not copy over running programs.
 
-for file in `ls libexec | grep -v '^\.'`
+for file in `censored_ls libexec`
 do
     compare_or_replace a+x,go-w libexec/$file $DAEMON_DIRECTORY/$file || exit 1
 done
 
-for file in `ls bin | grep '^post'`
+for file in `censored_ls bin | grep '^post'`
 do
     compare_or_replace a+x,go-w bin/$file $COMMAND_DIRECTORY/$file || exit 1
 done
@@ -255,21 +268,18 @@ test -f bin/sendmail && {
     compare_or_symlink $SENDMAIL_PATH $MAILQ_PATH
 }
 
-compare_or_replace a+r,go-w conf/LICENSE $CONFIG_DIRECTORY/LICENSE || exit 1
-
-test -f $CONFIG_DIRECTORY/main.cf || {
-    cp conf/* $CONFIG_DIRECTORY || exit 1
+if [ -f $CONFIG_DIRECTORY/main.cf ]
+then
+    for file in LICENSE `cd conf; censored_ls sample*` main.cf.default
+    do
+	compare_or_replace a+r,go-w conf/$file $CONFIG_DIRECTORY/$file || exit 1
+    done
+else
+    cp `censored_ls conf/*` $CONFIG_DIRECTORY || exit 1
     chmod a+r,go-w $CONFIG_DIRECTORY/* || exit 1
 
-    test -z "$install_root" && {
-	echo "Warning: you still need to edit myorigin/mydestination in" 1>&2
-	echo "$CONFIG_DIRECTORY/main.cf. See also html/faq.html for dialup" 1>&2
-	echo "sites or for sites inside a firewalled network." 1>&2
-	echo "" 1>&2
-	echo "BTW: Edit your alias database and be sure to set up aliases" 1>&2
-	echo "for root and postmaster, then run $NEWALIASES_PATH." 1>&2
-    }
-}
+    test -z "$install_root" && need_config=1
+fi
 
 # Save settings.
 
@@ -322,9 +332,11 @@ no) ;;
      for dir in man?
 	 do test -d $MANPAGES/$dir || mkdir -p $MANPAGES/$dir || exit 1
      done
-     for file in man?/*
+     for file in `censored_ls man?/*`
      do
-	 (test -f $MANPAGES/$file && cmp -s $file $MANPAGES/$file) || {
+	 (test -f $MANPAGES/$file && cmp -s $file $MANPAGES/$file &&
+	  echo Skipping $MANPAGES/$file...) || {
+	     echo Updating $MANPAGES/$file...
 	     rm -f $MANPAGES/$file
 	     cp $file $MANPAGES/$file || exit 1
 	     chmod 644 $MANPAGES/$file || exit 1
@@ -332,3 +344,20 @@ no) ;;
      done
     )
 esac
+
+test "$need_config" = 1 || exit 0
+
+ALIASES=`bin/postconf -h alias_database | sed 's/^[^:]*://'`
+cat <<EOF 1>&2
+    
+    Warning: you still need to edit myorigin/mydestination/mynetworks
+    in $CONFIG_DIRECTORY/main.cf. See also html/faq.html for dialup
+    sites or for sites inside a firewalled network.
+    
+    BTW: Check your $ALIASES file and be sure to set up aliases
+    for root and postmaster that direct mail to a real person, then
+    run $NEWALIASES_PATH.
+
+EOF
+
+exit 0
