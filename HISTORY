@@ -3616,3 +3616,30 @@ Apologies for any names omitted.
 
 	Bugfix: the too long header fix of 20000115-22 lost mail
 	without (blank line + message body).
+
+20000214
+
+	Bugfix: postconf reported some parameters more than once
+	because the parameter extracting script didn't recognize
+	lines that differ in whitespace only. File: postconf/extract.awk.
+	Reported by Kenn Martin.
+
+20000221
+
+	Logging: the SMTP client now logs log host+port when it is
+	unable to connect to a non-MX host, just like it logs
+	host+port when unable to connect to an MX host.
+
+20000226
+
+	Bugfix: the SMTP server's "User unknown" test didn't notice
+	LDAP etc. dictionary access errors. The code now reports
+	a 450 status (try again instead of bounce) if the reply is
+	not definitive.  File: smtp/smtpd_check.c.
+
+20000308
+
+	Bugfix: the SMTP server would produce a cryptic message
+	when a queue file write error happened before it had written
+	any recipients.  Keith Stevenson. File: smtpd/smtpd.c.
+
