@@ -123,6 +123,10 @@
 /*	\fIerror_count\fR seconds before responding to any client request.
 /* .IP \fBsmtpd_hard_error_limit\fR
 /*	Disconnect after a client has made this number of errors.
+/* .IP \fBsmtpd_junk_command_limit\fR
+/*	Limit the number of times a client can issue a junk command
+/*	such as NOOP, VRFY, ETRN or RSET in one SMTP session before
+/*	it is penalized with tarpit delays.
 /* .SH "UCE control restrictions"
 /* .ad
 /* .fi
@@ -306,6 +310,7 @@ char   *var_relocated_maps;
 char   *var_alias_maps;
 char   *var_local_rcpt_maps;
 bool    var_allow_untrust_route;
+int     var_smtpd_junk_cmd_limit;
 
  /*
   * Global state, for stand-alone mode queue file cleanup. When this is
@@ -1050,19 +1055,22 @@ static int quit_cmd(SMTPD_STATE *state, int unused_argc, SMTPD_TOKEN *unused_arg
 typedef struct SMTPD_CMD {
     char   *name;
     int     (*action) (SMTPD_STATE *, int, SMTPD_TOKEN *);
+    int     flags;
 } SMTPD_CMD;
 
+#define SMTPD_CMD_FLAG_LIMIT	(1<<0)	/* limit usage */
+
 static SMTPD_CMD smtpd_cmd_table[] = {
-    "HELO", helo_cmd,
-    "EHLO", ehlo_cmd,
-    "MAIL", mail_cmd,
-    "RCPT", rcpt_cmd,
-    "DATA", data_cmd,
-    "RSET", rset_cmd,
-    "NOOP", noop_cmd,
-    "VRFY", vrfy_cmd,
-    "ETRN", etrn_cmd,
-    "QUIT", quit_cmd,
+    "HELO", helo_cmd, 0,
+    "EHLO", ehlo_cmd, 0,
+    "MAIL", mail_cmd, 0,
+    "RCPT", rcpt_cmd, 0,
+    "DATA", data_cmd, 0,
+    "RSET", rset_cmd, SMTPD_CMD_FLAG_LIMIT,
+    "NOOP", noop_cmd, SMTPD_CMD_FLAG_LIMIT,
+    "VRFY", vrfy_cmd, SMTPD_CMD_FLAG_LIMIT,
+    "ETRN", etrn_cmd, SMTPD_CMD_FLAG_LIMIT,
+    "QUIT", quit_cmd, 0,
     0,
 };
 
@@ -1141,6 +1149,9 @@ static void smtpd_proto(SMTPD_STATE *state)
 	    }
 	    state->where = cmdp->name;
 	    if (cmdp->action(state, argc, argv) != 0)
+		state->error_count++;
+	    if ((cmdp->flags & SMTPD_CMD_FLAG_LIMIT)
+		&& state->junk_cmds++ > var_smtpd_junk_cmd_limit)
 		state->error_count++;
 
 	    if (cmdp->action == quit_cmd)
@@ -1321,6 +1332,7 @@ int     main(int argc, char **argv)
 	VAR_REJECT_CODE, DEF_REJECT_CODE, &var_reject_code, 0, 0,
 	VAR_SMTPD_ERR_SLEEP, DEF_SMTPD_ERR_SLEEP, &var_smtpd_err_sleep, 0, 0,
 	VAR_NON_FQDN_CODE, DEF_NON_FQDN_CODE, &var_non_fqdn_code, 0, 0,
+	VAR_SMTPD_JUNK_CMD, DEF_SMTPD_JUNK_CMD, &var_smtpd_junk_cmd_limit, 1, 0,
 	0,
     };
     static CONFIG_BOOL_TABLE bool_table[] = {

@@ -139,6 +139,10 @@ When an SMTP client has made this number of errors, wait
 \fIerror_count\fR seconds before responding to any client request.
 .IP \fBsmtpd_hard_error_limit\fR
 Disconnect after a client has made this number of errors.
+.IP \fBsmtpd_junk_command_limit\fR
+Limit the number of times a client can issue a junk command
+such as NOOP, VRFY, ETRN or RSET in one SMTP session before
+it is penalized with tarpit delays.
 .SH "UCE control restrictions"
 .ad
 .fi

@@ -3643,3 +3643,30 @@ Apologies for any names omitted.
 	when a queue file write error happened before it had written
 	any recipients.  Keith Stevenson. File: smtpd/smtpd.c.
 
+20000311
+
+	Portability: HP-UX awk can't handle bare { in regexps
+	(Lamont Jones. HP). File: postconf/extract.awk.
+
+	Compatibility: sendmail now recognizes '.' as end of input.
+	File: sendmail/sendmail.c.
+
+20000313
+
+	Compatibility: dtcm (CDE desktop calendar manager) leaks
+	a file descriptor into its child process, and requires that
+	sendmail closes the descriptor, otherwise mail notification
+	will hang.  These GUI programmers never figured out that
+	the child process must close the writing end of a pipe.
+	File:  sendmail/sendmail.c.
+
+20000326
+
+	Bugfix: settings in one mysql configuration file would act
+	as the implicit defaults for the next one, which could be
+	confusing.  Patch by Scott Cotton. File: util/dict_mysql.c.
+
+	Robustness: limit the number of "junk" commands that can
+	be issued in an SMTP session (ex.: NOOP, VRFY, ETRN, RSET).
+	Problem report by Michael Ju. Tokarev @ tls.msk.ru.  Files:
+	global/mail_params.h, smtpd/smtpd.c.

@@ -52,6 +52,7 @@ typedef struct SMTPD_STATE {
     char   *protocol;
     char   *where;
     int     recursion;
+    int     junk_cmds;
 } SMTPD_STATE;
 
 extern void smtpd_state_init(SMTPD_STATE *, VSTREAM *);

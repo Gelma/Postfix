@@ -623,6 +623,10 @@ extern int var_smtpd_hard_erlim;
 #define DEF_SMTPD_ERR_SLEEP	5
 extern int var_smtpd_err_sleep;
 
+#define VAR_SMTPD_JUNK_CMD	"smtpd_junk_command_limit"
+#define DEF_SMTPD_JUNK_CMD	1000
+extern int var_smtpd_junk_cmd_limit;
+
  /*
   * Cleanup service. Header info that exceeds $header_size_limit bytes forces
   * the start of the message body.

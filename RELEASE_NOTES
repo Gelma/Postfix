@@ -1,3 +1,11 @@
+Incompatible changes with postfix-19991231-pl06:
+================================================
+
+The Postfix sendmail command now treats a line with only `.' as
+the end of input, for the sake of sendmail compatibility. To disable
+this feature, specify the sendmail-compatible `-i' or `-oi' flags
+on the sendmail command line.
+
 Incompatible changes with postfix-19991231:
 ===========================================
 
