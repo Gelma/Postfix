@@ -44,6 +44,7 @@
 /* System library. */
 
 #include <sys_defs.h>
+#include <string.h>
 #include <time.h>
 
 /* Utility library. */
@@ -116,10 +117,12 @@ static int qmgr_deliver_send_request(QMGR_ENTRY *entry, VSTREAM *stream)
     QMGR_RCPT_LIST list = entry->rcpt_list;
     QMGR_RCPT *recipient;
     QMGR_MESSAGE *message = entry->message;
+    char   *cp;
 
     mail_print(stream, "%s %s %ld %ld %s %s %s %s %ld",
 	       message->queue_name, message->queue_id,
 	       message->data_offset, message->data_size,
+	    (cp = strrchr(entry->queue->name, '@')) != 0 && cp[1] ? cp + 1 :
 	       entry->queue->name, message->sender,
 	       message->errors_to, message->return_receipt,
 	       message->arrival_time);

@@ -3895,3 +3895,13 @@ Apologies for any names omitted.
 	(asynchronous bounce client), qmgr/qmgr_active.c.  Problem
 	reported by El Bunzo (webpower.nl) and Tiger Technologies
 	(tigertech.com).
+
+20001210
+
+	Bugfix: the local_destination_concurrency_limit paramater
+	no longer worked as per-user concurrency limit but as
+	per-domain limit, so that the limit of "2" in the sample
+	main.cf files resulted in poor local delivery performance.
+	Files:  qmgr/qmgr_message.c, qmgr/qmgr_deliver.c.  Problem
+	reported by David Schweikert (ee.ethz.ch) and Dallas
+	Wisehaupt (cynicism.com).
