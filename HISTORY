@@ -3752,7 +3752,7 @@ Apologies for any names omitted.
 20000621
 
 	AIX 4.x had POSIX regular expression support all the time
-	I was working on Postfix. Beter find out late than never.
+	I was working on Postfix. Better find out late than never.
 
 20000623
 
@@ -3826,3 +3826,31 @@ Apologies for any names omitted.
 	Bugfix: postalias -i would complain about duplicate entries
 	for the Sendmail-compatible @ entry and for the NIS-compatible
 	YP_LAST_MODIFIED and YP_MASTER_NAME entries.
+
+20001025
+
+	Bugfix: virtual map expansion stopped too early with
+	self-referential aliases. Reported by Michael Douglass
+	@ datafoundry.net. File: cleanup/cleanup_map1n.c.
+
+20001026
+
+	Horror:  postmap and postalias (newaliases) silently lose
+	the file lock while building a lookup table with Berkeley
+	DB 2.x and later on Solaris, HP-UX, IRIX, and UNIXWARE.
+	The result is that table lookups fail while the table is
+	being built, so that mail is lost.  In order to avoid this
+	misbehavior one has to use an undocumented feature that is
+	NOT available with the DB1.85 compatibility interface.
+	Therefore, Postfix now supports three Berkeley DB programming
+	interfaces of increasing complexity. File: util/dict_db.c.
+
+	Bugfix: some character manipulations were not portable for
+	signed/unsigned characters. Files: global/quote_821_local.c,
+	global/quote_822_local.c.
+
+20001030
+
+	Bugfix: further testing in preparation for 19991231-pl10
+	revealed that the DB map code was now broken for every
+	platform.

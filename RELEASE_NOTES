@@ -1,3 +1,13 @@
+Incompatible changes with postfix-19991231-pl10:
+================================================
+
+Berkeley DB support has changed for Solaris, HP-UX, UNIXWARE, IRIX.
+On these systems, Postfix must no longer use DB 1.85 compatibility
+mode, because that mode loses the file lock while building a table,
+so that table lookups fail and mail is lost. See the DB_README file
+for instructions on how to build Postfix with third-party Berkeley
+DB support.
+
 Major changes with postfix-19991231-pl08:
 =========================================
 
