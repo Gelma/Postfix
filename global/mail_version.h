@@ -15,7 +15,7 @@
   * Version of this program.
   */
 #define VAR_MAIL_VERSION	"mail_version"
-#define DEF_MAIL_VERSION	"Postfix-19991231-pl10"
+#define DEF_MAIL_VERSION	"Postfix-19991231-pl11"
 extern char *var_mail_version;
 
 /* LICENSE
