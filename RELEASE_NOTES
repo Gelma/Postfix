@@ -21,7 +21,7 @@ date.
 type that is used only for messages that actually use VERP (variable
 envelope return path) support.  With this sole exception, the queue
 file format is entirely backwards compatible with the previous
-official Postfix release (20020228, a.k.a. Postfix 1.1.0).
+official Postfix release (20020228, a.k.a. Postfix 1.0.0).
 
 [snapshot-20020106] This release modifies the existing master.cf
 file. The local pickup service is now unprivileged, and the cleanup
