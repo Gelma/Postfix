@@ -24,6 +24,8 @@ Makefile: Makefile.in
 
 test:	$(TESTPROG)
 
+tests:	test
+
 update: ../../bin/$(PROG)
 
 ../../bin/$(PROG): $(PROG)
@@ -68,5 +70,6 @@ postfix.o: ../../include/stringops.h
 postfix.o: ../../include/vstring.h
 postfix.o: ../../include/clean_env.h
 postfix.o: ../../include/argv.h
+postfix.o: ../../include/safe.h
 postfix.o: ../../include/mail_conf.h
 postfix.o: ../../include/mail_params.h

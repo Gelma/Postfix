@@ -5,8 +5,8 @@
 /*	Postfix master process
 /* SYNOPSIS
 /* .fi
-/*	\fBmaster\fR [\fB-c \fIconfig_dir\fR] [\fB-e \fIexit_time\fR]
-/*		[\fB-D\fR] [\fB-t\fR] [\fB-v\fR]
+/*	\fBmaster\fR [\fB-Dtv\fR] [\fB-c \fIconfig_dir\fR]
+/*		[\fB-e \fIexit_time\fR]
 /* DESCRIPTION
 /*	The \fBmaster\fR daemon is the resident process that runs Postfix
 /*	daemons on demand: daemons to send or receive messages via the
@@ -96,6 +96,9 @@
 /* .IP \fBqueue_directory\fR
 /*	Top-level directory of the Postfix queue. This is also the root
 /*	directory of Postfix daemons that run chrooted.
+/* .IP \fBinet_interfaces\fR
+/*	The network interface addresses that this system receives mail on.
+/*	You need to stop and start Postfix when this parameter changes.
 /* .SH "Resource controls"
 /* .ad
 /* .fi
@@ -154,10 +157,12 @@
 #include <watchdog.h>
 #include <clean_env.h>
 #include <argv.h>
+#include <safe.h>
 
 /* Global library. */
 
 #include <mail_params.h>
+#include <mail_version.h>
 #include <debug_process.h>
 #include <mail_task.h>
 #include <mail_conf.h>
@@ -239,6 +244,16 @@ int     main(int argc, char **argv)
      * Initialize logging and exit handler.
      */
     msg_syslog_init(mail_task(var_procname), LOG_PID, LOG_FACILITY);
+
+    /*
+     * The mail system must be run by the superuser so it can revoke
+     * privileges for selected operations. That's right - it takes privileges
+     * to toss privileges.
+     */
+    if (getuid() != 0)
+	msg_fatal("the master command is reserved for the superuser");
+    if (unsafe() != 0)
+	msg_fatal("the master command must not run as a set-uid process");
 
     /*
      * If started from a terminal, get rid of any tty association. This also
@@ -353,7 +368,7 @@ int     main(int argc, char **argv)
     master_config();
     master_sigsetup();
     master_flow_init();
-    msg_info("daemon started");
+    msg_info("daemon started -- version %s", var_mail_version);
 
     /*
      * Process events. The event handler will execute the read/write/timer

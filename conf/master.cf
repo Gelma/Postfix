@@ -19,14 +19,15 @@
 #
 # Unprivileged: whether the service runs with root privileges or as
 # the owner of the Postfix system (the owner name is controlled by the
-# mail_owner configuration variable in the main.cf file).
+# mail_owner configuration variable in the main.cf file). Only the
+# pipe, virtual and local delivery daemons require privileges.
 #
 # Chroot: whether or not the service runs chrooted to the mail queue
 # directory (pathname is controlled by the queue_directory configuration
 # variable in the main.cf file). Presently, all Postfix daemons can run
-# chrooted, except for the pipe and local daemons. The files in the
-# examples/chroot-setup subdirectory describe how to set up a Postfix
-# chroot environment for your type of machine.
+# chrooted, except for the pipe, virtual and local delivery daemons.
+# The files in the examples/chroot-setup subdirectory describe how
+# to set up a Postfix chroot environment for your type of machine.
 #
 # Wakeup time: automatically wake up the named service after the
 # specified number of seconds. A ? at the end of the wakeup time
@@ -41,7 +42,7 @@
 #
 # Command + args: the command to be executed. The command name is
 # relative to the Postfix program directory (pathname is controlled by
-# the program_directory configuration variable). Adding one or more
+# the daemon_directory configuration variable). Adding one or more
 # -v options turns on verbose logging for that service; adding a -D
 # option enables symbolic debugging (see the debugger_command variable
 # in the main.cf configuration file). See individual command man pages
@@ -79,6 +80,8 @@ bounce	  unix	-	-	n	-	0	bounce
 defer	  unix	-	-	n	-	0	bounce
 flush	  unix	n	-	n	1000?	0	flush
 smtp	  unix	-	-	n	-	-	smtp
+relay	  unix	-	-	n	-	-	smtp
+#	-o smtp_helo_timeout=5 -o smtp_connect_timeout=5
 showq     unix	n	-	n	-	-	showq
 error     unix	-	-	n	-	-	error
 local	  unix	-	n	n	-	-	local
@@ -87,10 +90,19 @@ lmtp	  unix	-	-	n	-	-	lmtp
 #
 # Interfaces to non-Postfix software. Be sure to examine the manual
 # pages of the non-Postfix software to find out what options it wants.
-# The Cyrus deliver program has changed incompatibly.
 #
-cyrus	  unix	-	n	n	-	-	pipe
+# maildrop. See the Postfix MAILDROP_README file for details.
+#
+maildrop  unix  -       n       n       -       -       pipe
+  flags=DRhu user=vmail argv=/usr/local/bin/maildrop -d ${recipient}
+#
+# The Cyrus deliver program has changed incompatibly, multiple times.
+#
+old-cyrus unix	-	n	n	-	-	pipe
   flags=R user=cyrus argv=/cyrus/bin/deliver -e -m ${extension} ${user}
+# Cyrus 2.1.5 (Amos Gouaux)
+cyrus	  unix	-	n	n	-	-	pipe
+  user=cyrus argv=/cyrus/bin/deliver -e -r ${sender} -m ${extension} ${user}
 uucp	  unix	-	n	n	-	-	pipe
   flags=Fqhu user=uucp argv=uux -r -n -z -a$sender - $nexthop!rmail ($recipient)
 ifmail    unix  -       n       n       -       -       pipe

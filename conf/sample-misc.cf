@@ -19,6 +19,19 @@ always_bcc =
 #
 daemon_timeout = 18000s
 
+# The berkeley_db_create_buffer_size parameter specifies the per-table
+# I/O buffer size for programs that create Berkeley DB hash or btree
+# tables.  Specify a byte count. The default buffer size is 16 MBytes.
+#
+berkeley_db_create_buffer_size = 16777216
+
+# The berkeley_db_read_buffer_size parameter specifies the per-table
+# I/O buffer size for programs that read Berkeley DB hash or btree
+# tables.  Specify a byte count. The default buffer size is 128
+# kBytes.
+#
+berkeley_db_read_buffer_size = 131072
+
 # The default_database_type parameter specifies the default database
 # type to use in postalias(1) and postmap(1) commands. On many UNIX
 # systems the default type is either `dbm' or `hash'. The default is
@@ -28,7 +41,9 @@ daemon_timeout = 18000s
 #default_database_type = dbm
 
 # The default_transport parameter specifies the default message
-# delivery transport to use when no transport is explicitly given in
+# delivery transport for domains that do not match mydestination,
+# inet_interfaces, virtual_alias_domains, virtual_mailbox_domains,
+# relay_domains, and for which no transport is explicitly given in
 # the optional transport(5) table.
 #
 # Specify a string of the form transport:nexthop, where transport is
@@ -106,7 +121,24 @@ import_environment = MAIL_CONFIG MAIL_DEBUG MAIL_LOGTAG TZ XAUTHORITY DISPLAY
 # the software claims all active interfaces on the machine. The
 # parameter also controls delivery of mail to user@[ip.address].
 #
+# See also the proxy_interfaces parameter, for network addresses that
+# are forwarded to us by way of a proxy or address translator.
+#
+# Note: you need to stop and start Postfix when this parameter changes.
+#
 inet_interfaces = all
+
+# The proxy_interfaces parameter specifies the network interface
+# addresses that this mail system receives mail on by way of a
+# proxy or network address translation unit. This setting extends
+# the address list specified with the inet_interfaces parameter.
+#
+# You must specify your proxy/NAT addresses when your system is a
+# backup MX host for other domains, otherwise mail delivery loops
+# will happen when the primary MX host is down.
+#
+#proxy_interfaces =
+#proxy_interfaces = 1.2.3.4
 
 # The ipc_idle parameter bounds the idle time for internal communication
 # channels after which a client disconnects voluntarily. The purpose
@@ -165,17 +197,23 @@ max_idle = 100s
 max_use = 100
 
 # The mydestination parameter specifies the list of domains that this
-# machine considers itself the final destination for. That includes
-# Sendmail-style virtual domains hosted on this machine.
+# machine considers itself the final destination for.
 #
-# Do not include Postfix-style virtual domains - those domains are
-# specified elsewhere (see sample-virtual.cf, and sample-transport.cf).
+# These domains are routed to the delivery agent specified with the 
+# local_transport parameter setting. By default, that is the UNIX
+# compatible delivery agent that lookups all recipients in /etc/passwd
+# and /etc/aliases or their equivalent.
 #
 # The default is $myhostname + localhost.$mydomain.  On a mail domain
-# gateway, you should also include $mydomain. Do not specify the
-# names of domains that this machine is backup MX host for. Specify
-# those names via the relay_domains or permit_mx_backup settings for
-# the SMTP server (see sample-smtpd.cf).
+# gateway, you should also include $mydomain. 
+#
+# Do not specify the names of virtual domains - those domains are
+# specified elsewhere (see sample-virtual.cf).
+#
+# Do not specify the names of domains that this machine is backup MX
+# host for. Specify those names via the relay_domains settings for
+# the SMTP server, or use permit_mx_backup if you are lazy (see
+# sample-smtpd.cf).
 #
 # The local machine is always the final destination for mail addressed
 # to user@[the.net.work.address] of an interface that the mail system
@@ -187,6 +225,11 @@ max_use = 100
 # a name matches a lookup key.  Continue long lines by starting the
 # next line with whitespace.
 #
+# See sample-local.cf for a description of the local_recipient_maps
+# and unknown_local_recipient_reject_code parameters. By default,
+# the SMTP server rejects mail for recipients not listed with the
+# local_recipient_maps parameter.
+#
 #mydestination = $myhostname, localhost.$mydomain $mydomain
 #mydestination = $myhostname, localhost.$mydomain www.$mydomain, ftp.$mydomain
 mydestination = $myhostname, localhost.$mydomain
@@ -196,14 +239,14 @@ mydestination = $myhostname, localhost.$mydomain
 # $mydomain is used as a default value for many other configuration
 # parameters.
 #
-#mydomain = domain.name
+#mydomain = domain.tld
 
 # The myhostname parameter specifies the internet hostname of this
 # mail system. The default is to use the fully-qualified domain name
 # from gethostname(). $myhostname is used as a default value for many
 # other configuration parameters.
 #
-#myhostname = host.domain.name
+#myhostname = host.domain.tld
 
 # The myorigin parameter specifies the domain that locally-posted
 # mail appears to come from. The default is to append $myhostname,
@@ -259,6 +302,20 @@ myorigin = $myhostname
 # policy (anti-UCE violations) and protocol error (broken mailers)
 # reports.
 #
+# The error classes are:
+#
+# bounce: Send the postmaster copies of the headers of bounced mail.
+# 2bounce: Send undeliverable bounced mail to the postmaster. 
+# delay: Send the postmaster copies of the headers of delayed mail.
+# policy: Send the postmaster a transcript of the entire SMTP session
+#	when a client request was rejected because of (UCE) policy.
+# protocol: Send the postmaster a transcript of the entire SMTP
+#	session in case of client or server protocol errors.
+# resource: Inform the postmaster of mail not delivered due to
+#	resource problems.
+# software: Inform the postmaster of mail not delivered due to
+#	software problems.
+#
 #notify_classes = bounce,delay,policy,protocol,resource,software
 #notify_classes = 2bounce,resource,software
 notify_classes = resource,software
@@ -273,10 +330,10 @@ delay_notice_recipient = postmaster
 error_notice_recipient = postmaster
 
 # The parent_domain_matches_subdomains parameter specifies what
-# Postfix features use "domain.name matches sub.domain.name" style
-# pattern matching instead of requiring ".domain.name". This is
+# Postfix features use "domain.tld matches sub.domain.tld" style
+# pattern matching instead of requiring ".domain.tld". This is
 # planned backwards compatibility: eventually, all Postfix features
-# are expected to require ".domain.name" style patterns.
+# are expected to require ".domain.tld" style patterns.
 #
 parent_domain_matches_subdomains = debug_peer_list,fast_flush_domains,
 	mynetworks,permit_mx_backup_networks,qmqpd_authorized_clients,
@@ -290,10 +347,10 @@ parent_domain_matches_subdomains = debug_peer_list,fast_flush_domains,
 #
 process_id_directory = pid
 
-# The program_directory parameter specifies the location of Postfix
+# The daemon_directory parameter specifies the location of Postfix
 # support programs and daemons. This directory must be owned by root.
 #
-program_directory = /usr/libexec/postfix
+daemon_directory = /usr/libexec/postfix
 
 # The queue_directory specifies the location of the Postfix queue.
 # This is also the root directory of Postfix daemons that run chrooted.
@@ -361,6 +418,22 @@ relayhost =
 #
 #relocated_maps = hash:/etc/postfix/relocated
 relocated_maps =
+
+# The resolve_dequoted_address parameter controls how Postfix
+# resolves addresses.
+# 
+# By default, the Postfix address resolver does not quote the address
+# localpart as per RFC 822, so that additional @ or % or ! operators
+# remain visible. This behavior is safe but it is also technically
+# incorrect.
+# 
+# If you specify "resolve_dequoted_address = no", then the Postfix
+# resolver will not know about additional @ etc. operators in the
+# address localpart. This opens opportunities for obscure mail relay
+# attacks with user@domain@domain addresses when Postfix provides
+# backup MX service for Sendmail systems.
+#
+resolve_dequoted_address = no
 
 # The syslog_facility parameter controls where Postfix logging is
 # sent by the syslog daemon. Specify a logging facility as defined
