@@ -1949,6 +1949,18 @@ char   *smtpd_check_rcptmap(SMTPD_STATE *state, char *recipient)
 #define NOP ((char **) 0)
 
     if (resolve_local(domain)) {
+	if (*var_virtual_maps
+	    && maps_find(virtual_maps, domain, 0)) {
+	    msg_warn("virtual domain \"%s\" is listed in $mydestination",
+		     domain);
+	    msg_warn("the $local_recipient_maps feature requires that no");
+	    msg_warn("virtual domains are listed in $mydestination");
+	    msg_warn("be sure to specify the required \"%s whatever\"",
+		     domain);
+	    msg_warn("entry in the virtual map, as explained in the man");
+	    msg_warn("page and in the FAQ entry for virtual domains");
+	    SMTPD_CHECK_RCPT_RETURN(0);
+	}
 	if (*var_local_rcpt_maps
 	    && !mail_addr_find(rcpt_canon_maps, STR(reply.recipient), NOP)
 	    && !mail_addr_find(canonical_maps, STR(reply.recipient), NOP)

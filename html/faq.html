@@ -97,8 +97,8 @@ distribution list</a>
 
 <li><a href="#mobile">Relaying mail for mobile users</a>
 
-<li><a href="#relay_virtual">Postfix refuses to receive mail for some
-virtual domains</a>
+<li><a href="#virtual_setup">Postfix refuses mail for virtual
+domains with "relay access denied"</a>
 
 <li><a href="#relay_restrict">Restricting what users can send mail to off-site destinations</a>
 
@@ -155,12 +155,24 @@ distribution list</a>
 
 <ul>
 
+<li><a href="#virtual_setup">How to configure a Postfix virtual domain</a>
+
+<li><a href="#virtual_setup">Postfix does not refuse mail for
+unknown virtual users</a>
+
+<li><a href="#virtual_setup">Mail for unknown virtual users fails
+with "mail loops back to myself"</a>
+
+<li><a href="#virtual_setup">Postfix refuses mail for virtual
+domains with "user unknown"</a>
+
+<li><a href="#virtual_setup">Postfix refuses mail for virtual
+domains with "relay access denied"</a>
+
 <li><a href="#command">Commands don't work in Postfix virtual maps</a>
 
-<li><a href="#unknown_virtual">Rejecting mail for unknown virtual users</a>
-
-<li><a href="#relay_virtual">Postfix refuses to receive mail for some
-virtual domains</a>
+<li><a href="#domain_mailbox">Receiving a virtual domain in a
+mailbox</a>
 
 </ul>
 
@@ -1123,7 +1135,7 @@ To find out the location for your system, execute the command
 <a name="bogus"><h3>Postfix accepts mail for non-existing local users</h3>
 
 The information in this section applies to Postfix versions 19991216
-and later. See elsewhere for <a href="#unknown_virtual">unknown
+and later. See elsewhere for <a href="#virtual_setup">unknown
 virtual</a> users.
 
 <p>
@@ -1145,7 +1157,7 @@ parameter:
 
 <pre>
     <b>/etc/postfix/main.cf</b>:
-	local_recipient_maps = $alias_maps, unix:passwd.byname
+	local_recipient_maps = $relocated_maps $alias_maps, unix:passwd.byname
 </pre>
 
 <p>
@@ -1527,6 +1539,65 @@ sense to make it moderated.
 
 <hr>
 
+<a name="virtual_setup"><h3>How to configure a Postfix virtual domain</h3>
+
+Problem:
+
+<p> 
+
+<ul>
+
+<li>Postfix does not refuse mail for unknown virtual users.
+
+<li>Mail for unknown virtual users fails with "mail loops back to
+myself".
+
+<li>Postfix refuses mail for virtual domains with "user unknown".
+
+<li>Postfix refuses mail for virtual domains with "relay access
+denied".
+
+</ul>
+
+<p>
+
+Solution:
+
+<p>
+
+<ul>
+
+<li> Add a magical entry to the Postfix virtual maps for
+each Postfix virtual domain:
+
+<p>
+
+<pre>
+    <b>/etc/postfix/virtual</b>:
+        virtual.domain whatever
+</pre>
+
+<p>
+
+<li> Do not list Postfix virtual domains in the <a
+href="basic.html#mydestination">mydestination</a> parameter.
+
+<li> Do not list Postfix virtual maps in the <b>local_recipient_maps</b>
+parameter.
+
+<li>As of Postfix version 19991226 it is no longer necessary to
+specify virtual maps in the <a
+href="uce.html#relay_domains">relay_domains</a> parameter.
+
+</ul>
+
+<p>
+
+For more information on how to set up virtual domains, see the <a
+href="virtual.5.html">virtual</a> manual page.
+
+<hr>
+
 <a name="command"><h3>Commands don't work in Postfix virtual maps</h3>
 
 Delivering mail to a command is a security-sensitive operation,
@@ -1593,66 +1664,68 @@ To find out the location for your system, execute the command
 
 <hr>
 
-<a name="unknown_virtual"><h3>Rejecting mail for unknown virtual users</h3>
+<a name="domain_mailbox"><h3>Receiving a virtual domain in a mailbox</h3>
 
-Problem: mail for an unknown virtual user is misdelivered to a local
-user with the same name.
-
-<p>
-
-Problem: mail for an unknown virtual user results in an ugly "mail
-loops back to myself" error from Postfix.
+Question: how to receive all mail for a domain in a mailbox without
+losing the original recipient information? The Postfix Delivered-To:
+mail header shows only the mailbox owner, not the virtual address
+that the mail was sent to.
 
 <p>
 
-Solution: add a magical entry to the Postfix virtual database:
+Answer: I hope we all agree that delivering a domain to a mailbox
+is disgusting practice. Forwarding mail via SMTP or UUCP would be
+a much better choice.  Unfortunately, neither SMTP nor UUCP are a
+usable alternative for legions of windows users.
+
+<p>
+
+That said, it is possible to propagate the original virtual recipient
+information to the Delivered-To: header. The trick is to use a
+virtual map that uses regular expressions instead of the more
+traditional indexed files.
+
+<p>
+
+The following delivers <i>username@virtual.domain</i> with a
+Delivered-To: message header that contains <i>joe+username@your.domain</i>.
+Postfix already puts the envelope sender address in the Return-Path:
+header.  The information in the Delivered-To: and Return-Path:
+headers is sufficient to reliably implement a domain in a mailbox.
 
 <p>
 
 <pre>
-    <b>/etc/postfix/virtual</b>:
-        virtual.domain whatever
+    <b>/etc/postfix/main.cf</b>
+	recipient_delimiter = +
+	virtual_maps = 
+	    <i>...non-regexp virtual maps...</i>
+	    regexp:/etc/postfix/virtual_regexp
+
+    <b>/etc/postfix/virtual_regexp</b>
+	/^virtual\.domain$/		whatever
+	/^(.*\)@virtual\.domain$/	joe+$1
 </pre>
 
 <p>
 
-This entry will also fix the problem that the Postfix SMTP server
-refuses to <a href="#relay_virtual">receive</a> mail for the virtual
-domain.
-
-<p>
-
-For more information on how to set up virtual domains, see the <a
-href="virtual.5.html">virtual</a> manual page.
-
-<hr>
-
-<a name="relay_virtual"><h3>Postfix refuses to receive mail for some
-virtual domains </h3>
-
-In order to receive mail for virtual domains, the Postfix SMTP server
-needs to know that the domain is OK.
-
-<p>
+Notes:
 
 <ul>
 
-<li>Create an entry in the virtual map that lists the virtual
-domain name:
+<li> Be sure to specify the <b>^</b> and <b>\</b> and <b>$</b> or
+else you may have false hits.
 
-<p>
+<li> Maps with regular expressions are searched sequentially. This
+can be expensive when you list many domains in regular expression
+maps.
 
-<pre>
-    <b>/etc/postfix/virtual</b>:
-        virtual.domain      whatever
-</pre>
+<li> Postfix has <b>regexp </b> map support only on modern UNIXes.
+Instead of <b>regexp </b> maps your Postfix system may also support
+<b>pcre</b> maps which have a similar syntax. To find out what maps
+your system supports, use the command <b>postconf -m</b>.
 
 </ul>
-
-<p>
-
-For more details, see the <a href="virtual.5.html">virtual</a>
-manual page.
 
 <hr>
 
@@ -1768,7 +1841,7 @@ Examples:
 
 This example specifies a command that delivers all local mail to
 mailbox.  See the sample <b>main.cf</b> file for examples. In
-<b>/etc/aliases</i>, you must specify an alias for <b>root</b> that
+<b>/etc/aliases</b>, you must specify an alias for <b>root</b> that
 directs mail to a real person, otherwise mail sent to <b>root</b>
 will not work as expected.
 
@@ -1801,7 +1874,7 @@ host.
 
 <li>You need an <b>rmail</b> program that extracts the sender
 address from mail that arrives via UUCP, and that feeds the mail
-into the Postfix <b>sendmail<b> command.  Most UNIX systems come
+into the Postfix <b>sendmail</b> command.  Most UNIX systems come
 with an <b>rmail</b> utility. If you're in a pinch, try the one
 bundled with the Postfix source code in the <b>auxiliary</b>
 directory. Some day Postfix may have its own <b>rmail</b> command.
