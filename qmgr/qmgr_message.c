@@ -20,9 +20,6 @@
 /*	void	qmgr_message_free(message)
 /*	QMGR_MESSAGE *message;
 /*
-/*	void	qmgr_message_route(message)
-/*	QMGR_MESSAGE *message;
-/*
 /*	void	qmgr_message_update_warn(message)
 /*	QMGR_MESSAGE *message;
 /* DESCRIPTION
@@ -44,7 +41,10 @@
 /*	of recipients read from a queue file is limited by the global
 /*	var_qmgr_rcpt_limit configuration parameter. When the limit
 /*	is reached, the \fIrcpt_offset\fR structure member is set to
-/*	the position where the read was terminated.
+/*	the position where the read was terminated. Recipients are
+/*	run through the resolver, and are assigned to destination
+/*	queues. Recipients that cannot be assigned are deferred or
+/*	bounced. Mail that has bounced twice is silently absorbed.
 /*
 /*	qmgr_message_realloc() resumes reading recipients from the queue
 /*	file, and updates the recipient list and \fIrcpt_offset\fR message
@@ -54,11 +54,6 @@
 /*	qmgr_message_free() destroys an in-core message structure and makes
 /*	the resources available for reuse. It is an error to destroy
 /*	a message structure that is still referenced by queue entry structures.
-/*
-/*	qmgr_message_route() runs message recipients through the resolver,
-/*	and assigns them to destination queues. Recipients that cannot be
-/*	assigned are deferred or bounced. Mail that has bounced twice is
-/*	silently absorbed.
 /*
 /*	qmgr_message_update_warn() takes a closed message, opens it, updates
 /*	the warning field, and closes it again.
@@ -705,6 +700,21 @@ QMGR_MESSAGE *qmgr_message_alloc(const char *queue_name, const char *queue_id,
 	qmgr_message_free(message);
 	return (0);
     } else {
+
+	/*
+	 * Reset the defer log. This code should not be here, but we must
+	 * reset the defer log *after* acquiring the exclusive lock on the
+	 * queue file and *before* resolving new recipients. Since all those
+	 * operations are encapsulated so nicely by this routine, the defer
+	 * log reset has to be done here as well.
+	 */
+	if (mail_queue_remove(MAIL_QUEUE_DEFER, queue_id) && errno != ENOENT)
+	    msg_fatal("%s: %s: remove %s %s: %m", myname,
+		      queue_id, MAIL_QUEUE_DEFER, queue_id);
+	qmgr_message_sort(message);
+	qmgr_message_resolve(message);
+	qmgr_message_sort(message);
+	qmgr_message_assign(message);
 	qmgr_message_close(message);
 	return (message);
     }
@@ -737,17 +747,11 @@ QMGR_MESSAGE *qmgr_message_realloc(QMGR_MESSAGE *message)
 	qmgr_message_close(message);
 	return (0);
     } else {
+	qmgr_message_sort(message);
+	qmgr_message_resolve(message);
+	qmgr_message_sort(message);
+	qmgr_message_assign(message);
 	qmgr_message_close(message);
 	return (message);
     }
-}
-
-/* qmgr_message_route - route recipients to transports */
-
-void    qmgr_message_route(QMGR_MESSAGE *message)
-{
-    qmgr_message_sort(message);
-    qmgr_message_resolve(message);
-    qmgr_message_sort(message);
-    qmgr_message_assign(message);
 }

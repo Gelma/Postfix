@@ -3068,3 +3068,9 @@ Apologies for any names omitted.
 	would not show why mail is delayed, and that delayed mail
 	could be sent back with recipients missing from the error
 	report. Reported by Giulio Orsero @ tiscalinet.it.
+
+19990922
+
+	Bugfix: the above bugfix broke bounces of mail with bad
+	address syntax and relocated users. Problem diagnosed by
+	Dick Porter @ acm.org.
