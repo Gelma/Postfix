@@ -3596,8 +3596,23 @@ Apologies for any names omitted.
 
 20000126
 
-	Emergency feature: qmgr_site_hog_factor (default: 90
-	percent) limits the amount of resources that Postfix will
-	devote to a single site. With less than 100, Postfix will
-	defer the excess mail so that one site with a large backlog
-	does not block other deliveries.
+	Emergency feature: qmgr_site_hog_factor (default: 90 percent)
+	limits the amount of resources that Postfix devotes to a
+	single destination. With less than 100, Postfix defers the
+	excess mail so that one site with a large backlog does not
+	block other deliveries. Files: qmgr/qmgr.c, qmgr/qmgr_message.c.
+
+20000129
+
+	Bugfix: extracted recipients were misfiled when a message
+	was moved back to the maildrop queue. But they still worked
+	due to a coincidence.
+
+20000130
+
+	Bugfix: the too long header fix of 20000115-22 lost mail
+	with too long headers that didn't need to extract recipients
+	from message headers.
+
+	Bugfix: the too long header fix of 20000115-22 lost mail
+	without (blank line + message body).

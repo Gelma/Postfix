@@ -303,7 +303,7 @@ static void cleanup_service(VSTREAM *src, char *unused_service, char **argv)
      * because we are about to tell the sender that it can throw away its
      * copy of the message.
      */
-    if (cleanup_errs == 0)
+    if ((cleanup_errs & CLEANUP_STAT_LETHAL) == 0)
 	cleanup_errs |= mail_stream_finish(cleanup_handle);
     else
 	mail_stream_cleanup(cleanup_handle);

@@ -409,9 +409,9 @@ void    cleanup_message(void)
 	 */
 	if (VSTRING_LEN(cleanup_header_buf) > 0) {
 	    if ((VSTRING_LEN(cleanup_header_buf) >= var_header_limit
-		 || type != REC_TYPE_NORM)) {
+		 || type == REC_TYPE_CONT)) {
 		cleanup_errs |= CLEANUP_STAT_HOVFL;
-	    } else if (ISSPACE(*start)) {
+	    } else if (type == REC_TYPE_NORM && ISSPACE(*start)) {
 		VSTRING_ADDCH(cleanup_header_buf, '\n');
 		vstring_strcat(cleanup_header_buf, start);
 		continue;
@@ -434,6 +434,7 @@ void    cleanup_message(void)
 	 */
 	if (in_header
 	    && ((cleanup_errs & CLEANUP_STAT_HOVFL)
+		|| type != REC_TYPE_NORM
 		|| !is_header(start))) {
 	    in_header = 0;
 	    cleanup_missing_headers();

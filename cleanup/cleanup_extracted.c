@@ -59,6 +59,11 @@ void    cleanup_extracted(void)
     int     type;
 
     /*
+     * Start the extracted segment, before copying recipient records.
+     */
+    cleanup_out_string(REC_TYPE_XTRA, "");
+
+    /*
      * Do not complain in case of premature EOF - most likely the client
      * aborted the operation.
      * 
@@ -98,11 +103,6 @@ void    cleanup_extracted(void)
 	    return;
 	}
     }
-
-    /*
-     * Start the extracted segment.
-     */
-    cleanup_out_string(REC_TYPE_XTRA, "");
 
     /*
      * Always emit Return-Receipt-To and Errors-To records, and always emit
