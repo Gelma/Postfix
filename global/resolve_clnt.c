@@ -11,6 +11,7 @@
 /*		VSTRING *transport;
 /*		VSTRING *nexthop
 /*		VSTRING *recipient;
+/*		int	flags;
 /* .in -4
 /*	} RESOLVE_REPLY;
 /*
@@ -35,6 +36,18 @@
 /*	transport name, next_hop host name, and internal-form recipient
 /*	address. In case of communication failure the program keeps trying
 /*	until the mail system goes down.
+/*
+/*	In the resolver reply, the flags member is the bit-wise OR of
+/*	zero or more of the following:
+/* .IP RESOLVE_FLAG_FINAL
+/*	The recipient address resolves to a mail transport that performs
+/*	final delivery. The destination is local or corresponds to a hosted
+/*	domain that is handled by the local machine. This flag is currently
+/*	not used.
+/* .IP RESOLVE_FLAG_ROUTED
+/*	After address resolution the recipient localpart contains further
+/*	routing information, so the resolved next-hop destination is not
+/*	the final destination.
 /* DIAGNOSTICS
 /*	Warnings: communication failure. Fatal error: mail system is down.
 /* SEE ALSO
@@ -80,6 +93,9 @@
   */
 extern CLNT_STREAM *rewrite_clnt_stream;
 
+static VSTRING *last_addr;
+static RESOLVE_REPLY last_reply;
+
 /* resolve_clnt_init - initialize reply */
 
 void    resolve_clnt_init(RESOLVE_REPLY *reply)
@@ -87,6 +103,7 @@ void    resolve_clnt_init(RESOLVE_REPLY *reply)
     reply->transport = vstring_alloc(100);
     reply->nexthop = vstring_alloc(100);
     reply->recipient = vstring_alloc(100);
+    reply->flags = 0;
 }
 
 /* resolve_clnt_query - resolve address to (transport, next hop, recipient) */
@@ -97,6 +114,14 @@ void    resolve_clnt_query(const char *addr, RESOLVE_REPLY *reply)
     VSTREAM *stream;
 
     /*
+     * One-entry cache.
+     */
+    if (last_addr == 0) {
+	last_addr = vstring_alloc(100);
+	resolve_clnt_init(&last_reply);
+    }
+
+    /*
      * Sanity check. The result must not clobber the input because we may
      * have to retransmit the request.
      */
@@ -104,6 +129,21 @@ void    resolve_clnt_query(const char *addr, RESOLVE_REPLY *reply)
 
     if (addr == STR(reply->recipient))
 	msg_panic("%s: result clobbers input", myname);
+
+    /*
+     * Peek at the cache.
+     */
+    if (strcmp(addr, STR(last_addr)) == 0) {
+	vstring_strcpy(reply->transport, STR(last_reply.transport));
+	vstring_strcpy(reply->nexthop, STR(last_reply.nexthop));
+	vstring_strcpy(reply->recipient, STR(last_reply.recipient));
+	reply->flags = last_reply.flags;
+	if (msg_verbose)
+	    msg_info("%s: cached: `%s' -> t=`%s' h=`%s' r=`%s'",
+		     myname, addr, STR(reply->transport),
+		     STR(reply->nexthop), STR(reply->recipient));
+	return;
+    }
 
     /*
      * Keep trying until we get a complete response. The resolve service is
@@ -120,8 +160,9 @@ void    resolve_clnt_query(const char *addr, RESOLVE_REPLY *reply)
 	    || vstream_fflush(stream)) {
 	    if (msg_verbose || (errno != EPIPE && errno != ENOENT))
 		msg_warn("%s: bad write: %m", myname);
-	} else if (mail_scan(stream, "%s %s %s", reply->transport,
-			     reply->nexthop, reply->recipient) != 3) {
+	} else if (mail_scan(stream, "%s %s %s %d",
+			     reply->transport, reply->nexthop,
+			     reply->recipient, &reply->flags) != 4) {
 	    if (msg_verbose || (errno != EPIPE && errno != ENOENT))
 		msg_warn("%s: bad read: %m", myname);
 	} else {
@@ -139,6 +180,15 @@ void    resolve_clnt_query(const char *addr, RESOLVE_REPLY *reply)
 	sleep(10);				/* XXX make configurable */
 	clnt_stream_recover(rewrite_clnt_stream);
     }
+
+    /*
+     * Update the cache.
+     */
+    vstring_strcpy(last_addr, addr);
+    vstring_strcpy(last_reply.transport, STR(reply->transport));
+    vstring_strcpy(last_reply.nexthop, STR(reply->nexthop));
+    vstring_strcpy(last_reply.recipient, STR(reply->recipient));
+    last_reply.flags = reply->flags;
 }
 
 /* resolve_clnt_free - destroy reply */

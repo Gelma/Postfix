@@ -81,6 +81,13 @@ extern char *var_myhostname;
 extern char *var_mydomain;
 
  /*
+  * The default local delivery transport.
+  */
+#define VAR_LOCAL_TRANSPORT	"local_transport"
+#define DEF_LOCAL_TRANSPORT	"local"
+extern char *var_local_transport;
+
+ /*
   * Where to send postmaster copies of bounced mail, and other notices.
   */
 #define VAR_BOUNCE_RCPT		"bounce_notice_recipient"
@@ -206,6 +213,21 @@ extern char *var_db_type;
 #define VAR_ALWAYS_BCC		"always_bcc"
 #define DEF_ALWAYS_BCC		""
 extern char *var_always_bcc;
+
+ /*
+  * Standards violation: allow/permit RFC 822-style addresses in SMTP
+  * commands.
+  */
+#define VAR_STRICT_RFC821_ENV	"strict_rfc821_envelopes"
+#define DEF_STRICT_RFC821_ENV	0
+extern bool var_strict_rfc821_env;
+
+ /*
+  * Standards violation: disable VRFY.
+  */
+#define VAR_DISABLE_VRFY_CMD	"disable_vrfy_command"
+#define DEF_DISABLE_VRFY_CMD	0
+extern bool var_disable_vrfy_cmd;
 
  /*
   * trivial rewrite/resolve service: mapping tables.
@@ -402,6 +424,10 @@ extern int var_delay_warn_time;
 #define VAR_QMGR_RCPT_LIMIT	"qmgr_message_recipient_limit"
 #define DEF_QMGR_RCPT_LIMIT	10000
 extern int var_qmgr_rcpt_limit;
+
+#define VAR_QMGR_FUDGE		"qmgr_fudge_factor"
+#define DEF_QMGR_FUDGE		100
+extern int var_qmgr_fudge;
 
  /*
   * Queue manager: default destination concurrency levels.
@@ -691,7 +717,7 @@ extern int var_trigger_timeout;
 extern char *var_mynetworks;
 
 #define VAR_RELAY_DOMAINS	"relay_domains"
-#define DEF_RELAY_DOMAINS	"$mydestination, $virtual_maps"
+#define DEF_RELAY_DOMAINS	"$mydestination"
 extern char *var_relay_domains;
 
 #define VAR_CLIENT_CHECKS	"smtpd_client_restrictions"
@@ -717,6 +743,14 @@ extern char *var_rcpt_checks;
 #define VAR_ETRN_CHECKS		"smtpd_etrn_restrictions"
 #define DEF_ETRN_CHECKS		""
 extern char *var_etrn_checks;
+
+#define VAR_REST_CLASSES	"smtpd_restriction_classes"
+#define DEF_REST_CLASSES	""
+extern char *var_rest_classes;
+
+#define VAR_ALLOW_UNTRUST_ROUTE	"allow_untrusted_routing"
+#define DEF_ALLOW_UNTRUST_ROUTE	0
+extern bool var_allow_untrust_route;
 
  /*
   * Names of specific restrictions, and the corresponding configuration
@@ -762,6 +796,7 @@ extern int var_non_fqdn_code;
 #define DEF_UNK_ADDR_CODE	450
 extern int var_unk_addr_code;
 
+#define PERMIT_AUTH_DEST	"permit_auth_destination"
 #define REJECT_UNAUTH_DEST	"reject_unauth_destination"
 #define CHECK_RELAY_DOMAINS	"check_relay_domains"
 #define VAR_RELAY_CODE		"relay_domains_reject_code"
@@ -796,6 +831,13 @@ extern int var_smtpd_delay_reject;
 #define REJECT_UNAUTH_PIPE	"reject_unauth_pipelining"
 
  /*
+  * Heuristic to reject most unknown recipients at the SMTP port.
+  */
+#define VAR_LOCAL_RCPT_MAPS	"local_recipient_maps"
+#define DEF_LOCAL_RCPT_MAPS	""
+extern char *var_local_rcpt_maps;
+
+ /*
   * Other.
   */
 #define VAR_PROCNAME		"process_name"
@@ -826,6 +868,13 @@ extern bool var_soft_bounce;
 #define VAR_OWNREQ_SPECIAL		"owner_request_special"
 #define DEF_OWNREQ_SPECIAL		1
 extern bool var_ownreq_special;
+
+ /*
+  * Allow/disallow recipient addresses starting with `-'.
+  */
+#define VAR_ALLOW_MIN_USER		"allow_min_user"
+#define DEF_ALLOW_MIN_USER		0
+extern bool var_allow_min_user;
 
 extern void mail_params_init(void);
 

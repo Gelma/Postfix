@@ -83,12 +83,14 @@
 /* resolve_addr - resolve address according to rule set */
 
 void    resolve_addr(char *addr, VSTRING *channel, VSTRING *nexthop,
-		             VSTRING *nextrcpt)
+		             VSTRING *nextrcpt, int *flags)
 {
     VSTRING *addr_buf = vstring_alloc(100);
     TOK822 *tree;
     TOK822 *saved_domain = 0;
     TOK822 *domain = 0;
+
+    *flags = 0;
 
     /*
      * The address is in internalized (unquoted) form, so we must externalize
@@ -120,6 +122,7 @@ void    resolve_addr(char *addr, VSTRING *channel, VSTRING *nexthop,
 	    && VSTRING_LEN(tree->head->vstr) == 0) {
 	    tok822_free(tree->head);
 	    tree->head = tok822_scan(MAIL_ADDR_POSTMASTER, &tree->tail);
+	    rewrite_tree(REWRITE_CANON, tree);
 	}
 
 	/*
@@ -135,14 +138,15 @@ void    resolve_addr(char *addr, VSTRING *channel, VSTRING *nexthop,
 	}
 
 	/*
-	 * Replace foo%bar by foo@bar, site!user by user@site, rewrite to
-	 * canonical form, and retry.
+	 * After stripping the local domain, if any, replace foo%bar by
+	 * foo@bar, site!user by user@site, rewrite to canonical form, and
+	 * retry.
+	 * 
+	 * Otherwise we're done.
 	 */
-	if (var_swap_bangpath && tok822_rfind_type(tree->tail, '!') != 0) {
-	    rewrite_tree(REWRITE_CANON, tree);
-	} else if (var_percent_hack
-		   && (domain = tok822_rfind_type(tree->tail, '%')) != 0) {
-	    domain->type = '@';
+	if (tok822_rfind_type(tree->tail, '@')
+	    || (var_swap_bangpath && tok822_rfind_type(tree->tail, '!'))
+	    || (var_percent_hack && tok822_rfind_type(tree->tail, '%'))) {
 	    rewrite_tree(REWRITE_CANON, tree);
 	} else {
 	    domain = 0;
@@ -151,30 +155,25 @@ void    resolve_addr(char *addr, VSTRING *channel, VSTRING *nexthop,
     }
 
     /*
-     * Non-local delivery: if no transport is specified, assume the transport
-     * specified in var_def_transport. If no mail relay is specified in
-     * var_relayhost, forward to the domain's mail exchanger.
+     * If the destination is non-local, recognize routing operators in the
+     * address localpart. This is needed to prevent backup MX hosts from
+     * relaying third-party destinations through primary MX hosts, otherwise
+     * the backup host could end up on black lists. Ignore local
+     * swap_bangpath and percent_hack settings because we can't know how the
+     * primary MX host is set up.
      */
-    if (domain != 0) {
-	if (*var_transport_maps == 0
-	    || (tok822_internalize(addr_buf, domain->next, TOK822_STR_DEFL),
-		transport_lookup(STR(addr_buf), channel, nexthop) == 0)) {
-	    vstring_strcpy(channel, var_def_transport);
-	    if (*var_relayhost)
-		vstring_strcpy(nexthop, var_relayhost);
-	    else
-		tok822_internalize(nexthop, domain->next, TOK822_STR_DEFL);
-	}
-	tok822_internalize(nextrcpt, tree, TOK822_STR_DEFL);
-    }
+    if (domain && domain->prev)
+	if (tok822_rfind_type(domain->prev, '@') != 0
+	    || tok822_rfind_type(domain->prev, '!') != 0
+	    || tok822_rfind_type(domain->prev, '%') != 0)
+	    *flags |= RESOLVE_FLAG_ROUTED;
 
     /*
-     * Local delivery: if no domain was specified, assume the local machine.
-     * See above for what happens with an empty localpart.
+     * Make sure the resolved envelope recipient has the user@domain form. If
+     * no domain was specified in the address, assume the local machine. See
+     * above for what happens with an empty address.
      */
-    else {
-	vstring_strcpy(channel, MAIL_SERVICE_LOCAL);
-	vstring_strcpy(nexthop, "");
+    if (domain == 0) {
 	if (saved_domain) {
 	    tok822_sub_append(tree, saved_domain);
 	    saved_domain = 0;
@@ -182,7 +181,41 @@ void    resolve_addr(char *addr, VSTRING *channel, VSTRING *nexthop,
 	    tok822_sub_append(tree, tok822_alloc('@', (char *) 0));
 	    tok822_sub_append(tree, tok822_scan(var_myhostname, (TOK822 **) 0));
 	}
-	tok822_internalize(nextrcpt, tree, TOK822_STR_DEFL);
+    }
+    tok822_internalize(nextrcpt, tree, TOK822_STR_DEFL);
+
+    /*
+     * The transport map overrides any transport and next-hop host info that
+     * is set up below. For a long time, it was not possible to override
+     * routing of mail that resolves locally, because Postfix used a
+     * zero-length next-hop hostname result to indicate local delivery, and
+     * transport maps cannot return zero-length hostnames.
+     */
+    if (*var_transport_maps
+    && transport_lookup(strrchr(STR(nextrcpt), '@') + 1, channel, nexthop)) {
+	 /* void */ ;
+    }
+
+    /*
+     * Non-local delivery, presumably. Set up the default remote transport
+     * specified with var_def_transport. Use the destination's mail exchanger
+     * unless a default mail relay is specified with var_relayhost.
+     */
+    else if (domain != 0) {
+	vstring_strcpy(channel, var_def_transport);
+	if (*var_relayhost)
+	    vstring_strcpy(nexthop, var_relayhost);
+	else
+	    tok822_internalize(nexthop, domain->next, TOK822_STR_DEFL);
+    }
+
+    /*
+     * Local delivery. Set up the default local transport and the default
+     * next-hop hostname (myself).
+     */
+    else {
+	vstring_strcpy(channel, var_local_transport);
+	vstring_strcpy(nexthop, var_myhostname);
     }
 
     /*
@@ -205,16 +238,19 @@ static VSTRING *query;
 
 int     resolve_proto(VSTREAM *stream)
 {
+    int     flags;
+
     if (mail_scan(stream, "%s", query) != 1)
 	return (-1);
 
-    resolve_addr(STR(query), channel, nexthop, nextrcpt);
+    resolve_addr(STR(query), channel, nexthop, nextrcpt, &flags);
 
     if (msg_verbose)
-	msg_info("%s -> (`%s' `%s' `%s')", STR(query), STR(channel),
-		 STR(nexthop), STR(nextrcpt));
+	msg_info("%s -> (`%s' `%s' `%s' `%d')", STR(query), STR(channel),
+		 STR(nexthop), STR(nextrcpt), flags);
 
-    mail_print(stream, "%s %s %s", STR(channel), STR(nexthop), STR(nextrcpt));
+    mail_print(stream, "%s %s %s %d",
+	       STR(channel), STR(nexthop), STR(nextrcpt), flags);
 
     if (vstream_fflush(stream) != 0) {
 	msg_warn("write resolver reply: %m");

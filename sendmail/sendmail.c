@@ -70,6 +70,8 @@
 /* .IP "\fB-X \fIlog_file\fR (ignored)"
 /*	Log mailer traffic. Use the \fBdebug_peer_list\fR and
 /*	\fBdebug_peer_level\fR configuration parameters instead.
+/* .IP "\fB-U\fR (ignored)"
+/*	Initial user submission.
 /* .IP \fB-bd\fR
 /*	Go into daemon mode. This mode of operation is implemented by
 /*	executing the \fBpostfix start\fR command.
@@ -309,6 +311,7 @@ static void enqueue(const char *sender, const char *full_name, char **recipients
     uid_t   uid = getuid();
     int     status;
     struct stat st;
+    int     naddr;
 
     /*
      * Initialize.
@@ -321,10 +324,20 @@ static void enqueue(const char *sender, const char *full_name, char **recipients
      * pickup would not be able to run chrooted, and it may not be desirable
      * to use login names at all.
      */
-    if (sender == 0)
+    if (sender != 0) {
+	tree = tok822_parse(sender);
+	for (naddr = 0, tp = tree; tp != 0; tp = tp->next)
+	    if (tp->type == TOK822_ADDR)
+		naddr++, tok822_internalize(buf, tp->head, TOK822_STR_DEFL);
+	tok822_free_tree(tree);
+	saved_sender = mystrdup(STR(buf));
+	if (naddr > 1)
+	    msg_warn("-f option specified malformed sender: %s", sender);
+    } else {
 	if ((sender = username()) == 0)
 	    msg_fatal("unable to find out your login name");
-    saved_sender = mystrdup(sender);
+	saved_sender = mystrdup(sender);
+    }
 
     /*
      * Open the queue file. Save the queue file name, so the run-time error
@@ -660,7 +673,7 @@ int     main(int argc, char **argv)
 	    optind++;
 	    continue;
 	}
-	if ((c = GETOPT(argc, argv, "B:C:F:IN:R:X:b:ce:f:h:imno:p:r:q:tvx")) <= 0)
+	if ((c = GETOPT(argc, argv, "B:C:F:IN:R:UX:b:ce:f:h:imno:p:r:q:tvx")) <= 0)
 	    break;
 	switch (c) {
 	default:

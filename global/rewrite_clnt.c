@@ -71,6 +71,9 @@
   */
 CLNT_STREAM *rewrite_clnt_stream = 0;
 
+static VSTRING *last_addr;
+static VSTRING *last_result;
+
 /* rewrite_clnt - rewrite address to (transport, next hop, recipient) */
 
 VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
@@ -79,15 +82,34 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
     VSTREAM *stream;
 
     /*
+     * One-entry cache.
+     */
+    if (last_addr == 0) {
+	last_addr = vstring_alloc(100);
+	last_result = vstring_alloc(100);
+    }
+
+    /*
      * Sanity check. An address must be in externalized form. The result must
      * not clobber the input, because we may have to retransmit the query.
      */
 #define STR vstring_str
 
     if (*addr == 0)
-	msg_panic("rewrite_clnt: empty address");
+	addr = "";
     if (addr == STR(result))
 	msg_panic("rewrite_clnt: result clobbers input");
+
+    /*
+     * Peek at the cache.
+     */
+    if (strcmp(addr, STR(last_addr)) == 0) {
+	vstring_strcpy(result, STR(last_result));
+	if (msg_verbose)
+	    msg_info("rewrite_clnt: cached: %s: %s -> %s",
+		     rule, addr, vstring_str(result));
+	return (result);
+    }
 
     /*
      * Keep trying until we get a complete response. The rewrite service is
@@ -111,16 +133,19 @@ VSTRING *rewrite_clnt(const char *rule, const char *addr, VSTRING *result)
 	    if (msg_verbose)
 		msg_info("rewrite_clnt: %s: %s -> %s",
 			 rule, addr, vstring_str(result));
-#if 0
-	    if (addr[0] != 0 && STR(result)[0] == 0)
-		msg_warn("%s: null result for: <%s>", myname, addr);
-	    else
-#endif
-		return (result);
+	    break;
 	}
 	sleep(10);				/* XXX make configurable */
 	clnt_stream_recover(rewrite_clnt_stream);
     }
+
+    /*
+     * Update the cache.
+     */
+    vstring_strcpy(last_addr, addr);
+    vstring_strcpy(last_result, STR(result));
+
+    return (result);
 }
 
 /* rewrite_clnt_internal - rewrite from/to internal form */

@@ -19,7 +19,7 @@
 /*	of messages that the queue manager is actually working on.
 /*	The active queue is limited in size. Messages are drained
 /*	from the active queue by allocating a delivery process and
-/*	by delivering mail via that process.  Message leak into the
+/*	by delivering mail via that process.  Messages leak into the
 /*	active queue only when the active queue is small enough.
 /*	Damaged message files are saved to the "corrupt" directory.
 /*
@@ -219,14 +219,6 @@ void    qmgr_active_feed(QMGR_SCAN *scan_info, const char *queue_id)
     } else if (message == QMGR_MESSAGE_LOCKED) {
 	qmgr_active_defer(MAIL_QUEUE_ACTIVE, queue_id, var_min_backoff_time);
     } else {
-
-	/*
-	 * Reset the defer log. Leave the bounce log alone; if it is still
-	 * around, something did not send it previously.
-	 */
-	if (mail_queue_remove(MAIL_QUEUE_DEFER, queue_id) && errno != ENOENT)
-	    msg_fatal("%s: %s: remove %s %s: %m", myname,
-		      queue_id, MAIL_QUEUE_DEFER, queue_id);
 
 	/*
 	 * Special case if all recipients were already delivered. Send any

@@ -135,6 +135,14 @@ void    qmgr_entry_done(QMGR_ENTRY *entry, int which)
     } else {
 	msg_panic("qmgr_entry_done: bad queue spec: %d", which);
     }
+
+    /*
+     * Free the recipient list and decrease the in-core recipient count
+     * accordingly.
+     */
+    qmgr_recipient_count -= entry->rcpt_list.len;
+    qmgr_rcpt_list_free(&entry->rcpt_list);
+
     myfree((char *) entry);
 
     /*
@@ -153,8 +161,24 @@ void    qmgr_entry_done(QMGR_ENTRY *entry, int which)
     /*
      * Update the in-core message reference count. When the in-core message
      * structure has no more references, dispose of the message.
+     * 
+     * When the in-core recipient count falls below a threshold, and this
+     * message has more recipients, read more recipients now. If we read more
+     * recipients as soon as the recipient count falls below the in-core
+     * recipient limit, we do not give other messages a chance until this
+     * message is delivered. That's good for mailing list deliveries, bad for
+     * one-to-one mail. If we wait until the in-core recipient count drops
+     * well below the in-core recipient limit, we give other mail a chance,
+     * but we also allow list deliveries to become interleaved. In the worst
+     * case, people near the start of a mailing list get a burst of postings
+     * today, while people near the end of the list get that same burst of
+     * postings a whole day later.
      */
+#define FUDGE(x)	((x) * (var_qmgr_fudge / 100.0))
     message->refcount--;
+    if (message->rcpt_offset > 0
+	     && qmgr_recipient_count < FUDGE(var_qmgr_rcpt_limit))
+	qmgr_message_realloc(message);
     if (message->refcount == 0)
 	qmgr_active_done(message);
 }
@@ -174,8 +198,7 @@ QMGR_ENTRY *qmgr_entry_create(QMGR_QUEUE *queue, QMGR_MESSAGE *message)
     entry = (QMGR_ENTRY *) mymalloc(sizeof(QMGR_ENTRY));
     entry->stream = 0;
     entry->message = message;
-    entry->rcpt_list.len = 0;
-    entry->rcpt_list.info = 0;
+    qmgr_rcpt_list_init(&entry->rcpt_list);
     message->refcount++;
     entry->queue = queue;
     QMGR_LIST_APPEND(queue->todo, entry);

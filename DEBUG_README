@@ -25,8 +25,8 @@ Append one or more -v options to selected daemon definitions in
 /etc/postfix/master.cf and type "postfix reload". This will cause
 a lot of activity to be logged to the syslog daemon.
 
-4 - Tracing a Postfix daemon process
-====================================
+4 - Manually tracing a Postfix daemon process
+=============================================
 
 Some systems allow you to inspect a running process with a system
 call tracer. For example:
@@ -41,9 +41,30 @@ See your system documentation for details.
 Tracing a running process can give valuable information about what
 a process is attempting to do. This is as much information as you
 can get without running an interactive debugger program, as described
-in the next section.
+in a later section.
 
-5 - Running daemon programs under an interactive debugger
+5 - Automatically tracing a Postfix daemon process
+==================================================
+
+Postfix can attach a call tracer whenever a daemon process starts.
+
+Append a -D option to the suspect command in /etc/postfix/master.cf,
+for example:
+
+    smtp      inet  n       -       n       -       -       smtpd -D
+
+Edit the debugger_command definition in /etc/postfix/main.cf so
+that it invokes the call tracer of your choice, for example:
+
+    debugger_command =
+         PATH=/bin:/usr/bin:/usr/local/bin
+         (truss -p $process_id 2>&1 | logger -p mail.info) & sleep 5
+
+Instead of truss use trace or strace.
+
+Type "postfix reload" and watch the logfile.
+
+6 - Running daemon programs under an interactive debugger
 =========================================================
 
 Append a -D option to the suspect command in /etc/postfix/master.cf,
@@ -68,3 +89,48 @@ Stop and start the Postfix system.
 
 Whenever the suspect daemon process is started, a debugger window
 pops up and you can watch in detail what happens.
+
+7 - Unreasonable behavior
+=========================
+
+Sometimes the behavior exhibit by Postfix just does not match the
+source code. Why can a program deviate from the instructions given
+by its author? There are two possibilities.
+
+1 - The compiler has messed up.
+
+2 - The hardware has messed up.
+
+In both cases, the program being executed is not the program that
+was supposed to be executed, so anything can happen.
+
+Hardware-related failures happen erratically, and they usually do
+not reproduce after power cycling and rebooting the system.  There's
+little I can do about bad hardware.  Be sure to use hardware that
+at the very least can detect memory errors. Otherwise, Postfix will
+just be a sitting duck waiting to be hit by a bit error. Critical
+systems deserve real hardware.
+
+When a compiler messes up, the problem can be reproduced whenever
+the resulting program is run. Compiler errors are most likely to
+happen in the code optimizer. If a problem is reproducible across
+power cycles and system reboots, it can be worthwhile to rebuild
+Postfix with optimization disabled, and to see if optimization
+makes a difference.
+
+In order to compile Postfix with optimizations turned off:
+
+    % make tidy
+    % make makefiles OPT=
+
+This produces a set of Makefiles that do not request compiler
+optomization. 
+
+Once the makefiles are set up, build the software:
+
+    % make
+    % su
+    # make install
+
+And see if the problem reproduces. If the problem goes away, talk
+to your vendor.

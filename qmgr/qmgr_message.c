@@ -110,6 +110,7 @@
 #include <deliver_completed.h>
 #include <mail_addr_find.h>
 #include <opened.h>
+#include <resolve_local.h>
 
 /* Client stubs. */
 
@@ -193,6 +194,7 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
     long    extra_offset;
     int     rec_type;
     long    curr_offset;
+    long    save_offset = message->rcpt_offset;	/* save a flag */
     char   *start;
     struct stat st;
 
@@ -206,12 +208,11 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
      * already looked at, and reset the in-core recipient address list.
      */
     if (message->rcpt_offset) {
+	if (message->rcpt_list.len)
+	    msg_panic("%s: recipient list not empty on recipient reload", message->queue_id);
 	if (vstream_fseek(message->fp, message->rcpt_offset, SEEK_SET) < 0)
 	    msg_fatal("seek file %s: %m", VSTREAM_PATH(message->fp));
 	message->rcpt_offset = 0;
-	qmgr_recipient_count -= message->rcpt_list.len;
-	qmgr_rcpt_list_free(&message->rcpt_list);
-	qmgr_rcpt_list_init(&message->rcpt_list);
     }
 
     /*
@@ -221,6 +222,17 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
      * may appear before or after the message content, so we keep reading
      * from the queue file until we have enough recipients (rcpt_offset != 0)
      * and until we know where the message content starts (data_offset != 0).
+     * 
+     * When reading recipients from queue file, stop reading when we reach a
+     * per-message in-core recipient limit rather than a global in-core
+     * recipient limit. Use the global recipient limit only in order to stop
+     * opening queue files. The purpose is to achieve equal delay for
+     * messages with recipient counts up to var_qmgr_rcpt_limit recipients.
+     * 
+     * If we would read recipients up to a global recipient limit, the average
+     * number of in-core recipients per message would asymptotically approach
+     * (global recipient limit)/(active queue size limit), which gives equal
+     * delay per recipient rather than equal delay per message.
      */
     do {
 	if ((curr_offset = vstream_ftell(message->fp)) < 0)
@@ -240,10 +252,10 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 		       message->data_size, "queue %s", message->queue_name);
 	    }
 	} else if (rec_type == REC_TYPE_RCPT) {
-#define TOTAL_RECIPIENT_COUNT (qmgr_recipient_count + message->rcpt_list.len)
-	    if (TOTAL_RECIPIENT_COUNT < var_qmgr_rcpt_limit) {
+#define FUDGE(x)	((x) * (var_qmgr_fudge / 100.0))
+	    if (message->rcpt_list.len < FUDGE(var_qmgr_rcpt_limit)) {
 		qmgr_rcpt_list_add(&message->rcpt_list, curr_offset, start);
-		if (TOTAL_RECIPIENT_COUNT >= var_qmgr_rcpt_limit) {
+		if (message->rcpt_list.len >= FUDGE(var_qmgr_rcpt_limit)) {
 		    if ((message->rcpt_offset = vstream_ftell(message->fp)) < 0)
 			msg_fatal("vstream_ftell %s: %m",
 				  VSTREAM_PATH(message->fp));
@@ -281,8 +293,6 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 	}
     } while (rec_type > 0 && rec_type != REC_TYPE_END);
 
-    qmgr_recipient_count += message->rcpt_list.len;
-
     /*
      * If there is no size record, use the queue file size instead.
      */
@@ -316,6 +326,7 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 	|| message->data_offset == 0
 	|| (message->rcpt_offset == 0 && rec_type != REC_TYPE_END)) {
 	msg_warn("%s: envelope records out of order", message->queue_id);
+	message->rcpt_offset = save_offset;	/* restore flag */
 	return (-1);
     } else {
 	return (0);
@@ -476,9 +487,9 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	/*
 	 * Bounce mail to non-existent users in virtual domains.
 	 */
-	if (VSTRING_LEN(reply.nexthop) > 0
-	    && qmgr_virtual != 0
-	    && (at = strrchr(recipient->address, '@')) != 0) {
+	if (qmgr_virtual != 0
+	    && (at = strrchr(recipient->address, '@')) != 0
+	    && !resolve_local(at + 1)) {
 	    domain = lowercase(mystrdup(at + 1));
 	    junk = maps_find(qmgr_virtual, domain, 0);
 	    myfree(domain);
@@ -490,6 +501,24 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	}
 
 	/*
+	 * Bounce recipient addresses that start with `-'. External commands
+	 * may misinterpret such addresses as command-line options.
+	 * 
+	 * In theory I could say people should always carefully set up their
+	 * master.cf pipe mailer entries with `--' before the first
+	 * non-option argument, but mistakes will happen regardless.
+	 * 
+	 * Therefore the protection is put in place here, in the queue manager,
+	 * where it cannot be bypassed.
+	 */
+	if (var_allow_min_user == 0 && recipient->address[0] == '-') {
+	    qmgr_bounce_recipient(message, recipient,
+				  "invalid recipient syntax: \"%s\"",
+				  recipient->address);
+	    continue;
+	}
+
+	/*
 	 * Queues are identified by the transport name and by the next-hop
 	 * hostname. When the destination is local (no next hop), derive the
 	 * queue name from the recipient name. XXX Should split the address
@@ -497,7 +526,8 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	 * job requires knowledge of local aliases. Yuck! I don't want to
 	 * duplicate delivery-agent specific knowledge in the queue manager.
 	 */
-	if (VSTRING_LEN(reply.nexthop) == 0) {
+	if ((at = strrchr(STR(reply.recipient), '@')) == 0
+	    || resolve_local(at + 1)) {
 	    vstring_strcpy(reply.nexthop, STR(reply.recipient));
 	    (void) split_at_right(STR(reply.nexthop), '@');
 #if 0
@@ -601,10 +631,11 @@ static void qmgr_message_assign(QMGR_MESSAGE *message)
     /*
      * Try to bundle as many recipients in a delivery request as we can. When
      * the recipient resolves to the same site and transport as the previous
-     * recipient, do not create a new queue entry, just bump the count of
-     * recipients for the existing queue entry. All this provided that we do
-     * not exceed the transport-specific limit on the number of recipients
-     * per transaction. Skip recipients with a dead transport or destination.
+     * recipient, do not create a new queue entry, just move that recipient
+     * to the recipient list of the existing queue entry. All this provided
+     * that we do not exceed the transport-specific limit on the number of
+     * recipients per transaction. Skip recipients with a dead transport or
+     * destination.
      */
 #define LIMIT_OK(limit, count) ((limit) == 0 || ((count) < (limit)))
 
@@ -614,13 +645,13 @@ static void qmgr_message_assign(QMGR_MESSAGE *message)
 		|| !LIMIT_OK(entry->queue->transport->recipient_limit,
 			     entry->rcpt_list.len)) {
 		entry = qmgr_entry_create(queue, message);
-		entry->rcpt_list.info = recipient;
-		entry->rcpt_list.len = 1;
-	    } else {
-		entry->rcpt_list.len++;
 	    }
+	    qmgr_rcpt_list_add(&entry->rcpt_list, recipient->offset, recipient->address);
+	    qmgr_recipient_count++;
 	}
     }
+    qmgr_rcpt_list_free(&message->rcpt_list);
+    qmgr_rcpt_list_init(&message->rcpt_list);
 }
 
 /* qmgr_message_free - release memory for in-core message structure */
@@ -639,7 +670,6 @@ void    qmgr_message_free(QMGR_MESSAGE *message)
 	myfree(message->errors_to);
     if (message->return_receipt)
 	myfree(message->return_receipt);
-    qmgr_recipient_count -= message->rcpt_list.len;
     qmgr_rcpt_list_free(&message->rcpt_list);
     qmgr_message_count--;
     myfree((char *) message);
@@ -682,6 +712,17 @@ QMGR_MESSAGE *qmgr_message_alloc(const char *queue_name, const char *queue_id,
 	qmgr_message_free(message);
 	return (0);
     } else {
+
+	/*
+	 * Reset the defer log. This code should not be here, but we must
+	 * reset the defer log *after* acquiring the exclusive lock on the
+	 * queue file and *before* resolving new recipients. Since all those
+	 * operations are encapsulated so nicely by this routine, the defer
+	 * log reset has to be done here as well.
+	 */
+	if (mail_queue_remove(MAIL_QUEUE_DEFER, queue_id) && errno != ENOENT)
+	    msg_fatal("%s: %s: remove %s %s: %m", myname,
+		      queue_id, MAIL_QUEUE_DEFER, queue_id);
 	qmgr_message_sort(message);
 	qmgr_message_resolve(message);
 	qmgr_message_sort(message);
@@ -702,8 +743,6 @@ QMGR_MESSAGE *qmgr_message_realloc(QMGR_MESSAGE *message)
      */
     if (message->rcpt_offset <= 0)
 	msg_panic("%s: invalid offset: %ld", myname, message->rcpt_offset);
-    if (message->refcount != 0)
-	msg_panic("%s: bad refcount: %d", myname, message->refcount);
     if (msg_verbose)
 	msg_info("%s: %s %s offset %ld", myname, message->queue_name,
 		 message->queue_id, message->rcpt_offset);

@@ -68,6 +68,12 @@ The following \fBmain.cf\fR parameters are especially relevant to
 this program. See the Postfix \fBmain.cf\fR file for syntax details
 and for default values. Use the \fBpostfix reload\fR command after
 a configuration change.
+.SH "Compatibility controls"
+.ad
+.fi
+.IP \fBstrict_rfc821_envelopes\fR
+Disallow non-RFC 821 style addresses in envelopes. For example,
+allow RFC822-style address forms with comments, like Sendmail does.
 .SH Miscellaneous
 .ad
 .fi
@@ -89,6 +95,10 @@ Recipient of protocol/policy/resource/software error notices.
 Limit the number of \fBReceived:\fR message headers.
 .IP \fBnotify_classes\fR
 List of error classes. Of special interest are:
+.IP \fBlocal_recipient_maps\fR
+List of maps with user names that are local to \fB$myorigin\fR
+or \fB$inet_interfaces\fR. If this parameter is defined,
+then the SMTP server rejects mail for unknown local users.
 .RS
 .IP \fBpolicy\fR
 When a client violates any policy, mail a transcript of the
@@ -147,6 +157,14 @@ Restrict what recipient addresses are allowed in \fBRCPT TO\fR commands.
 .IP \fBsmtpd_etrn_restrictions\fR
 Restrict what domain names can be used in \fBETRN\fR commands,
 and what clients may issue \fBETRN\fR commands.
+.IP \fBallow_untrusted_routing\fR
+Allow untrusted clients to specify addresses with sender-specified
+routing.  Enabling this opens up nasty relay loopholes involving
+trusted backup MX hosts.
+.IP \fBrestriction_classes\fR
+Declares the name of zero or more parameters that contain a
+list of UCE restrictions. The names of these parameters can
+then be used instead of the restriction lists that they represent.
 .IP \fBmaps_rbl_domains\fR
 List of DNS domains that publish the addresses of blacklisted
 hosts.

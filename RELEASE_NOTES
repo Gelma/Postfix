@@ -1,3 +1,132 @@
+Incompatible changes with postfix-19991231:
+===========================================
+
+- The SMTP server no longer forwards mail from untrusted clients
+with sender-specified routing (stuff[@%!]stuff[@%!]stuff) through
+destinations that are authorized by the relay_domains parameter.
+This closes a loophole that exploits trust relationships between
+hosts.  Example:  a trusted backup MX host forwards junk mail to
+a primary MX host which forwards the junk to the Internet. Specify
+"allow_untrusted_routing = yes" to restore the old behavior.
+
+- The SMTP server no longer forwards mail with sender-specified
+routing (stuff[@%!]stuff[@%!]stuff) through destinations that are
+authorized by the permit_mx_backup feature. This change is under
+control by the allow_untrusted_routing parameter discussed above.
+
+- In order to support the above, the data structure and protocol
+of the trivial-rewrite service was changed. This means you must
+re-compile and re-link existing software that uses the Postfix
+resolve_clnt interface.
+
+- As a side effect of the above, an address from an untrusted client
+with @ in the localpart (user@remote@here) no longer bounces with
+"user unknown" but instead is rejected with "relay access denied".
+
+- Incompatible SMTPD access map changes:
+
+  An all-numeric right-hand side now means OK.  This is for better
+  cooperation with out-of-band authentication mechanisms such as
+  POP before SMTP etc.
+
+  An empty right-hand sides still mean OK, but Postfix will log a
+  warning in order to discourage such usage.
+
+  You can no longer use virtual, canonical or aliases tables as
+  SMTPD access maps. Use the local_recipient_maps feature instead.
+
+- Recipient addresses may no longer begin with `-'. In order to
+get the old behavior, specify "allow_min_user = yes" in main.cf.
+
+- Incompatible transport map changes:
+
+  Transport map entries override mydestination.  If you use transport
+  maps, it is better to always have explicit entries for all domain
+  names you have in $mydestination.  See the html/faq.html sections
+  for firewalls and intranets.
+
+  The nexthop information given to a local delivery agent may have
+  changed.  This information was never intended to be used as a
+  next-hop destination.
+
+Major changes with postfix-19991231:
+====================================
+
+- It is now much more difficult to configure Postfix as an open
+relay. The SMTP server requires that "smtpd_recipient_restrictions"
+contains at least one restriction that by default refuses mail (as
+is the default).  There were too many accidents with changes to
+the UCE restrictions.
+
+- The relay_domains parameter no longer needs to contain $virtual_maps.
+
+- Overhauled FAQ (html/faq.html) with many more examples.
+
+- Updated UCE documentation (html/uce.html) with more examples.
+More UCE configuration examples in sample configuration files.
+
+- Several little improvements to the installation procedure:
+relative symlinks, configurable directory for scratch files so the
+installation can be done without write access to the build tree.
+
+- Updated LDAP client code (John Hensley).
+
+- Updated mysql client code (Scott Cotton).
+
+- The SMTP server now rejects mail for unknown users in virtual
+domains that are defined by Postfix virtual maps.
+
+- The SMTP server optionally rejects mail for unknown local users.
+Use "local_recipient_maps = $alias_maps, unix:passwd.byname" if
+your local mail is delivered by a UNIX-style local delivery agent.
+See example in conf/main.cf.
+
+- Use "disable_vrfy_command = yes" to disable the SMTP VRFY command.
+This prevents some forms of address harvesting.
+
+- The sendmail "-f" option now understands <user> and even understands
+forms with RFC 822-style comments.
+
+- New "qmgr_fudge_factor" parameter allows you to balance mailing
+list performance against response time for one-to-one mail.  The
+fudge factor controls what percentage of delivery resources Postfix
+will devote to one message.  With 100%, delivery of one message
+does not begin before delivery of the previous message is completed.
+This is good for list performance, bad for one-to-one mail. With
+10%, response time for one-to-one mail improves much, but list
+performance suffers: in the worst case, people near the start of a
+mailing list get a burst of postings today, while people near the
+end of the list get that same burst of postings a whole day later.
+
+- It is now relatively safe to configure 550 status codes for the
+main.cf unknown_address_reject_code or unknown_client_reject_code
+parameters.  The SMTP server now always sends a 450 (try again)
+reply code when an UCE restriction fails due to a soft DNS error,
+regardless of what main.cf specifies.
+
+- The RBL checks now show the content of TXT records (Simon J Mudd).
+
+- The Postfix SMTP server now understands a wider range of illegal
+address forms in MAIL FROM and RCPT TO commands. In order to disable
+illegal forms, specify "strict_rfc821_envelopes = yes". This also
+disables support for MAIL FROM and RCPT TO addresses without <>.
+
+- Per-client/helo/sender/recipient UCE restrictions (fully-recursive
+UCE restriction parser). See the RESTRICTION_CLASS file for details.
+
+- Use "postmap -q key" or "postalias -q key" for testing Postfix
+lookup tables or alias files.
+
+- Use "postconf -e name=value..." to edit the main.cf file.  This
+is easier and safer than editing the main.cf file by hand. The
+edits are done on a temporary copy that is renamed into place.
+
+- Use "postconf -m" to display all supported lookup table types
+(Scott Cotton).
+
+- New "permit_auth_destination" UCE restriction for finer-grained
+access control (Jesper Skriver).
+
 Incompatible changes with postfix-19990906
 ==========================================
 
@@ -7,7 +136,7 @@ files while delivering to files specified in aliases/forward/include
 files. This is a no-op when the recipient lacks directory write
 permission.
 
-- The LDAP client code no longer looks up name containing "*"
+- The LDAP client code no longer looks up a name containing "*"
 because it could be abused.  See the LDAP_README file for how to
 restore previous behavior.
 
