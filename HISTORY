@@ -3141,6 +3141,11 @@ Apologies for any names omitted.
 	Documentation: removed spurious "do not edit" comments from
 	the sample pcre and regexp configuration files.
 
+19991113
+
+	Cleanup: the local delivery agent now explicitly rejects
+	recipients with an empty username.
+
 19991117
 
 	Portability: SunOS 4 has no SA_RESTART. File: util/watchdog.c.
@@ -3159,3 +3164,26 @@ Apologies for any names omitted.
 	Bugfix: the LDAP client did not properly escape special
 	characters in lookup keys (patch by John Hensley).
 	File: util/dict_ldap.c.
+
+19991124
+
+	Bugfix: the local delivery agent's recipient duplicate
+	filter did not work when configured to use unlimited memory
+	(which is not a recommended setting). Patrik Rak @ein.cz.
+
+19991208
+
+	Bugfix: the local delivery agent would deliver to the user
+	instead of the .forward file when the .forward file was
+	already visited via some non-recursive path. Patch by Patrik
+	Rak @ ein.cz. Files: global/been_here.c, local/dotforward.c.
+
+	Robustness: attempt to deliver all addresses in the expansion
+	of an alias or .forward file, even when some addresses must
+	be deferred.  File: local/token.c.
+
+19991211
+
+	Bugfix: address rewriting would panic on a lone \ at the
+	end of a line where an address was expected. Jason Hoos @
+	thwack.net. File: global/rewrite_clnt.c.
