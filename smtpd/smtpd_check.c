@@ -1373,19 +1373,19 @@ static int generic_checks(SMTPD_STATE *state, char *name,
      * Sender mail address restrictions.
      */
     if (is_map_command(name, CHECK_SENDER_ACL, cpp)) {
-	if (state->sender)
+	if (state->sender && *state->sender)
 	    *status = check_mail_access(state, **cpp, state->sender,
 					state->sender, SMTPD_NAME_SENDER);
 	return (1);
     }
     if (strcasecmp(name, REJECT_UNKNOWN_ADDRESS) == 0) {
-	if (state->sender)
+	if (state->sender && *state->sender)
 	    *status = reject_unknown_address(state, state->sender,
 					  state->sender, SMTPD_NAME_SENDER);
 	return (1);
     }
     if (strcasecmp(name, REJECT_UNKNOWN_SENDDOM) == 0) {
-	if (state->sender)
+	if (state->sender && *state->sender)
 	    *status = reject_unknown_address(state, state->sender,
 					  state->sender, SMTPD_NAME_SENDER);
 	return (1);

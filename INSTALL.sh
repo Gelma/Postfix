@@ -28,9 +28,9 @@ your changes interactively.
     command_directory - directory with Postfix administrative commands.
     queue_directory - directory with Postfix queues.
 
-    sendmail_path - full pathname of the sendmail command.
-    newaliases_path - full pathname of the newaliases command.
-    mailq_path - full pathname of the mailq command.
+    sendmail_path - full pathname of the Postfix sendmail command.
+    newaliases_path - full pathname of the Postfix newaliases command.
+    mailq_path - full pathname of the Postfix mailq command.
 
     owner - owner of Postfix queue files.
 
@@ -138,7 +138,7 @@ do
    esac
 done
 
-grep "^$owner:" /etc/passwd >/dev/null || {
+bin/postmap -q "$owner" unix:passwd.byname >/dev/null || {
     echo "$owner needs an entry in the passwd file" 1>&2
     echo "Remember, $owner must have a dedicated user id and group id." 1>&2
     exit 1
@@ -146,7 +146,7 @@ grep "^$owner:" /etc/passwd >/dev/null || {
 
 case $setgid in
 no) ;;
- *) grep "^$setgid:" /etc/group >/dev/null || {
+ *) bin/postmap -q "$setgid" unix:group.byname >/dev/null || {
 	echo "$setgid needs an entry in the group file" 1>&2
 	echo "Remember, $setgid must have a dedicated group id." 1>&2
 	exit 1

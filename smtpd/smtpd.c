@@ -387,7 +387,7 @@ static void mail_open_stream(SMTPD_STATE *state)
 	state->dest = mail_stream_service(MAIL_CLASS_PRIVATE,
 					  MAIL_SERVICE_CLEANUP);
 	if (state->dest == 0
-	    || mail_print(state->dest->stream, "%d", CLEANUP_FLAG_NONE) != 0)
+	 || mail_print(state->dest->stream, "%d", CLEANUP_FLAG_FILTER) != 0)
 	    msg_fatal("unable to connect to the %s %s service",
 		      MAIL_CLASS_PRIVATE, MAIL_SERVICE_CLEANUP);
     }
@@ -591,10 +591,13 @@ static int data_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *unused_argv)
     int     first = 1;
 
     /*
-     * Sanity checks.
+     * Sanity checks. With ESMTP command pipelining the client can send DATA
+     * before all recipients are rejected, so don't report that as a protocol
+     * error.
      */
     if (state->rcpt_count == 0) {
-	state->error_mask |= MAIL_ERROR_PROTOCOL;
+	if (state->cleanup == 0)
+	    state->error_mask |= MAIL_ERROR_PROTOCOL;
 	smtpd_chat_reply(state, "503 Error: need RCPT command");
 	return (-1);
     }
