@@ -2346,6 +2346,13 @@ extern char *var_smtp_ehlo_dis_words;
 #define DEF_SMTP_EHLO_DIS_MAPS		""
 extern char *var_smtp_ehlo_dis_maps;
 
+ /*
+  * Allow CNAME lookup result to override the server hostname.
+  */
+#define VAR_SMTP_CNAME_OVERR		"smtp_cname_overrides_servername"
+#define DEF_SMTP_CNAME_OVERR		1
+extern bool var_smtp_cname_overr;
+
 /* LICENSE
 /* .ad
 /* .fi
