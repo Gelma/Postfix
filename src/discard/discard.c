@@ -11,6 +11,7 @@
 /*	the queue manager. Each request specifies a queue file, a sender
 /*	address, a domain or host name that is treated as the reason for
 /*	discarding the mail, and recipient information.
+/*	The reason may be prefixed with an RFC 3463-compatible detail code.
 /*	This program expects to be run from the \fBmaster\fR(8) process
 /*	manager.
 /*
@@ -49,6 +50,9 @@
 /* .IP "\fBdaemon_timeout (18000s)\fR"
 /*	How much time a Postfix daemon process may take to handle a
 /*	request before it is terminated by a built-in watchdog timer.
+/* .IP "\fBdelay_logging_resolution_limit (2)\fR"
+/*	The maximal number of digits after the decimal point when logging
+/*	sub-second delay values.
 /* .IP "\fBdouble_bounce_sender (double-bounce)\fR"
 /*	The sender address of postmaster notifications that are generated
 /*	by the mail system.
@@ -116,6 +120,7 @@
 #include <deliver_completed.h>
 #include <flush_clnt.h>
 #include <sent.h>
+#include <dsn_util.h>
 
 /* Single server skeleton. */
 
@@ -125,12 +130,14 @@
 
 static int deliver_message(DELIVER_REQUEST *request)
 {
-    char   *myname = "deliver_message";
+    const char *myname = "deliver_message";
     VSTREAM *src;
     int     result = 0;
     int     status;
     RECIPIENT *rcpt;
     int     nrcpt;
+    DSN_SPLIT dp;
+    DSN     dsn;
 
     if (msg_verbose)
 	msg_info("deliver_message: from %s", request->sender);
@@ -162,12 +169,13 @@ static int deliver_message(DELIVER_REQUEST *request)
      */
 #define BOUNCE_FLAGS(request) DEL_REQ_TRACE_FLAGS(request->flags)
 
+    dsn_split(&dp, "2.0.0", request->nexthop);
+    (void) DSN_SIMPLE(&dsn, DSN_STATUS(dp.dsn), dp.text);
     for (nrcpt = 0; nrcpt < request->rcpt_list.len; nrcpt++) {
 	rcpt = request->rcpt_list.info + nrcpt;
 	if (rcpt->offset >= 0) {
 	    status = sent(BOUNCE_FLAGS(request), request->queue_id,
-		       rcpt->orig_addr, rcpt->address, rcpt->offset, "none",
-			  request->arrival_time, "%s", request->nexthop);
+			  &request->msg_stats, rcpt, "none", &dsn);
 	    if (status == 0 && (request->flags & DEL_REQ_FLAG_SUCCESS))
 		deliver_completed(src, rcpt->offset);
 	    result |= status;

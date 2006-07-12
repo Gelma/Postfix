@@ -77,7 +77,7 @@
 
 int     valid_hostname(const char *name, int gripe)
 {
-    char   *myname = "valid_hostname";
+    const char *myname = "valid_hostname";
     const char *cp;
     int     label_length = 0;
     int     label_count = 0;
@@ -182,7 +182,7 @@ int     valid_hostaddr(const char *addr, int gripe)
 int     valid_ipv4_hostaddr(const char *addr, int gripe)
 {
     const char *cp;
-    char   *myname = "valid_ipv4_hostaddr";
+    const char *myname = "valid_ipv4_hostaddr";
     int     in_byte = 0;
     int     byte_count = 0;
     int     byte_val = 0;
@@ -253,8 +253,8 @@ int     valid_ipv6_hostaddr(const char *addr, int gripe)
      * FIX 200501 The IPv6 patch validated syntax with getaddrinfo(), but I
      * am not confident that everyone's system library routines are robust
      * enough, like buffer overflow free. Remember, the valid_hostmumble()
-     * routines are meant to protect Postfix against malformed information
-     * in data received from the network.
+     * routines are meant to protect Postfix against malformed information in
+     * data received from the network.
      * 
      * We require eight-field hex addresses of the form 0:1:2:3:4:5:6:7,
      * 0:1:2:3:4:5:6a.6b.7c.7d, or some :: compressed version of the same.
@@ -313,7 +313,7 @@ int     valid_ipv6_hostaddr(const char *addr, int gripe)
 		    return (0);
 		}
 		null_field = field;
-	    } 
+	    }
 	    break;
 	default:
 	    /* Advance by at least 1 character position or terminate. */

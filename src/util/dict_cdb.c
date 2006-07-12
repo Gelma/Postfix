@@ -57,6 +57,7 @@
 #include "stringops.h"
 #include "iostuff.h"
 #include "myflock.h"
+#include "stringops.h"
 #include "dict.h"
 #include "dict_cdb.h"
 
@@ -105,6 +106,14 @@ static const char *dict_cdbq_lookup(DICT *dict, const char *name)
     dict_errno = 0;
 
     /* CDB is constant, so do not try to acquire a lock. */
+
+    /*
+     * Optionally fold the key.
+     */
+    if (dict->fold_buf) {
+	vstring_strcpy(dict->fold_buf, name);
+	name = lowercase(vstring_str(dict->fold_buf));
+    }
 
     /*
      * See if this CDB file was written with one null byte appended to key
@@ -156,6 +165,8 @@ static void dict_cdbq_close(DICT *dict)
 
     cdb_free(&dict_cdbq->cdb);
     close(dict->stat_fd);
+    if (dict->fold_buf)
+	vstring_free(dict->fold_buf);
     dict_free(dict);
 }
 
@@ -190,12 +201,23 @@ static DICT *dict_cdbq_open(const char *path, int dict_flags)
     close_on_exec(fd, CLOSE_ON_EXEC);
 
     /*
+     * Warn if the source file is newer than the indexed file, except when
+     * the source file changed only seconds ago.
+     */
+    if (stat(path, &st) == 0
+	&& st.st_mtime > dict_cdbq->dict.mtime
+	&& st.st_mtime < time((time_t *) 0) - 100)
+	msg_warn("database %s is older than source file %s", cdb_path, path);
+
+    /*
      * If undecided about appending a null byte to key and value, choose to
      * try both in query mode.
      */
     if ((dict_flags & (DICT_FLAG_TRY1NULL | DICT_FLAG_TRY0NULL)) == 0)
 	dict_flags |= DICT_FLAG_TRY0NULL | DICT_FLAG_TRY1NULL;
     dict_cdbq->dict.flags = dict_flags | DICT_FLAG_FIXED;
+    if (dict_flags & DICT_FLAG_FOLD_FIX)
+	dict_cdbq->dict.fold_buf = vstring_alloc(10);
 
     myfree(cdb_path);
     return (&dict_cdbq->dict);
@@ -206,9 +228,16 @@ static DICT *dict_cdbq_open(const char *path, int dict_flags)
 static void dict_cdbm_update(DICT *dict, const char *name, const char *value)
 {
     DICT_CDBM *dict_cdbm = (DICT_CDBM *) dict;
-    unsigned ksize,
-            vsize;
+    unsigned ksize, vsize;
     int     r;
+
+    /*
+     * Optionally fold the key.
+     */
+    if (dict->fold_buf) {
+	vstring_strcpy(dict->fold_buf, name);
+	name = lowercase(vstring_str(dict->fold_buf));
+    }
 
     ksize = strlen(name);
     vsize = strlen(value);
@@ -274,6 +303,8 @@ static void dict_cdbm_close(DICT *dict)
 	msg_fatal("close database %s: %m", dict_cdbm->cdb_path);
     myfree(dict_cdbm->cdb_path);
     myfree(dict_cdbm->tmp_path);
+    if (dict->fold_buf)
+	vstring_free(dict->fold_buf);
     dict_free(dict);
 }
 
@@ -285,8 +316,7 @@ static DICT *dict_cdbm_open(const char *path, int dict_flags)
     char   *cdb_path;
     char   *tmp_path;
     int     fd;
-    struct stat st0,
-            st1;
+    struct stat st0, st1;
 
     cdb_path = concatenate(path, CDB_SUFFIX, (char *) 0);
     tmp_path = concatenate(path, CDB_TMP_SUFFIX, (char *) 0);
@@ -351,6 +381,8 @@ static DICT *dict_cdbm_open(const char *path, int dict_flags)
 	     && (dict_flags & DICT_FLAG_TRY0NULL))
 	dict_flags &= ~DICT_FLAG_TRY0NULL;
     dict_cdbm->dict.flags = dict_flags | DICT_FLAG_FIXED;
+    if (dict_flags & DICT_FLAG_FOLD_FIX)
+	dict_cdbm->dict.fold_buf = vstring_alloc(10);
 
     return (&dict_cdbm->dict);
 }
@@ -360,7 +392,7 @@ static DICT *dict_cdbm_open(const char *path, int dict_flags)
 DICT   *dict_cdb_open(const char *path, int open_flags, int dict_flags)
 {
     switch (open_flags & (O_RDONLY | O_RDWR | O_WRONLY | O_CREAT | O_TRUNC)) {
-    case O_RDONLY:				/* query mode */
+	case O_RDONLY:			/* query mode */
 	return dict_cdbq_open(path, dict_flags);
     case O_WRONLY | O_CREAT | O_TRUNC:		/* create mode */
     case O_RDWR | O_CREAT | O_TRUNC:		/* sloppiness */

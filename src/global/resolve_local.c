@@ -76,8 +76,11 @@ int     resolve_local(const char *addr)
     char   *dest;
     const char *bare_dest;
     struct addrinfo *res0 = 0;
-    int     len;
+    ssize_t len;
 
+    /*
+     * The optimizer will eliminate tests that always fail.
+     */
 #define RETURN(x) \
     do { \
 	myfree(saved_addr); \
@@ -170,6 +173,7 @@ int     main(int argc, char **argv)
     mail_conf_read();
     vstream_printf("%s\n", resolve_local(argv[1]) ? "yes" : "no");
     vstream_fflush(VSTREAM_OUT);
+    return (0);
 }
 
 #endif

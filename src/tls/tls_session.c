@@ -6,12 +6,12 @@
 /* SYNOPSIS
 /*	#include <tls.h>
 /*
-/*	int	tls_session_stop(ctx, stream, timeout, failure, tls_info)
+/*	void	tls_session_stop(ctx, stream, timeout, failure, TLScontext)
 /*	SSL_CTX	*ctx;
 /*	VSTREAM	*stream;
 /*	int	timeout;
 /*	int	failure;
-/*	tls_info_t *tls_info;
+/*	TLScontext_t *TLScontext;
 /*
 /*	VSTRING	*tls_session_passivate(session)
 /*	SSL_SESSION *session;
@@ -74,17 +74,15 @@
 
 /* tls_session_stop - shut down the TLS connection and reset state */
 
-void    tls_session_stop(SSL_CTX *ctx, VSTREAM *stream, int timeout,
-			         int failure, tls_info_t *tls_info)
+void    tls_session_stop(SSL_CTX *unused_ctx, VSTREAM *stream, int timeout,
+			         int failure, TLScontext_t *TLScontext)
 {
     const char *myname = "tls_session_stop";
-    TLScontext_t *TLScontext;
     int     retval;
 
     /*
      * Sanity check.
      */
-    TLScontext = (TLScontext_t *) vstream_context(stream);
     if (TLScontext == 0)
 	msg_panic("%s: stream has no active TLS context", myname);
 
@@ -101,23 +99,8 @@ void    tls_session_stop(SSL_CTX *ctx, VSTREAM *stream, int timeout,
 	if (retval == 0)
 	    tls_bio_shutdown(vstream_fileno(stream), timeout, TLScontext);
     }
-
-    /*
-     * Free the SSL structure and the BIOs. Warning: the internal_bio is
-     * connected to the SSL structure and is automatically freed with it. Do
-     * not free it again (core dump)!! Only free the network_bio.
-     * 
-     * XXX SSL_CTX_flush_sessions() searches memory for expired sessions and
-     * removes them from memory and external cache.
-     */
-    SSL_free(TLScontext->con);
-
-    BIO_free(TLScontext->network_bio);
-    FREE_TLS_CONTEXT(TLScontext);
+    tls_free_context(TLScontext);
     tls_stream_stop(stream);
-    SSL_CTX_flush_sessions(ctx, time(NULL));
-
-    *tls_info = tls_info_zero;
 }
 
 /* tls_session_passivate - passivate SSL_SESSION object */
@@ -159,15 +142,20 @@ VSTRING *tls_session_passivate(SSL_SESSION *session)
 
 /* tls_session_activate - activate passivated session */
 
-SSL_SESSION *tls_session_activate(char *session_data, int session_data_len)
+SSL_SESSION *tls_session_activate(const char *session_data, int session_data_len)
 {
+#if (OPENSSL_VERSION_NUMBER < 0x0090707fL)
+#define BOGUS_CONST
+#else
+#define BOGUS_CONST const
+#endif
     SSL_SESSION *session;
-    unsigned char *ptr;
+    BOGUS_CONST unsigned char *ptr;
 
     /*
      * Activate the SSL_SESSION object.
      */
-    ptr = (unsigned char *) session_data;
+    ptr = (BOGUS_CONST unsigned char *) session_data;
     session = d2i_SSL_SESSION((SSL_SESSION **) 0, &ptr, session_data_len);
     if (!session)
 	tls_print_errors();

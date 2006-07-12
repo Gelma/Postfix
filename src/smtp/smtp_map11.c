@@ -55,10 +55,6 @@
 #include <sys_defs.h>
 #include <string.h>
 
-#ifdef STRCASECMP_IN_STRINGS_H
-#include <strings.h>
-#endif
-
 /* Utility library. */
 
 #include <msg.h>
@@ -76,8 +72,6 @@
 /* Application-specific. */
 
 #include <smtp.h>
-
-#define STR		vstring_str
 
 /* smtp_map11_external - one-to-one table lookups */
 
@@ -149,7 +143,7 @@ int     main(int argc, char **argv)
     if (argc < 3)
 	msg_fatal("usage: %s maptype:mapname address...", argv[0]);
 
-    maps = maps_create(argv[1], argv[1], 0);
+    maps = maps_create(argv[1], argv[1], DICT_FLAG_FOLD_FIX);
     mail_params_init();
     if (chdir(var_queue_dir) < 0)
 	msg_fatal("chdir(%s): %m", var_queue_dir);

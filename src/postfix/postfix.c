@@ -46,7 +46,7 @@
 /*	Re-read configuration files. Running processes terminate at their
 /*	earliest convenience.
 /* .IP "\fBset-permissions\fR \fB[\fIname\fR=\fIvalue ...\fB]\fR
-/*	Set the ownership and permissions of Postfix related files and 
+/*	Set the ownership and permissions of Postfix related files and
 /*	directories, as specified in the \fBpostfix-files\fR file.
 /* .sp
 /*	Specify \fIname\fR=\fIvalue\fR to override and update specific
@@ -165,6 +165,7 @@
 /*	sendmail(1), Sendmail compatibility interface
 /*
 /*	Postfix configuration:
+/*	bounce(5), Postfix bounce message templates
 /*	master(5), Postfix master.cf file syntax
 /*	postconf(5), Postfix main.cf file syntax
 /*
@@ -186,6 +187,7 @@
 /*	pcre_table(5), Associate PCRE pattern with value
 /*	pgsql_table(5), Postfix PostgreSQL client
 /*	regexp_table(5), Associate POSIX regexp pattern with value
+/*	tcp_table(5), Postfix client-server table lookup
 /*
 /*	Daemon processes:
 /*	anvil(8), Postfix connection/rate limiting
@@ -194,7 +196,6 @@
 /*	discard(8), Postfix discard delivery agent
 /*	error(8), Postfix error delivery agent
 /*	flush(8), Postfix fast ETRN service
-/*	lmtp(8), Postfix LMTP client
 /*	local(8), Postfix local delivery agent
 /*	master(8), Postfix master daemon
 /*	oqmgr(8), old Postfix queue manager
@@ -205,7 +206,7 @@
 /*	qmqpd(8), Postfix QMQP server
 /*	scache(8), Postfix connection cache manager
 /*	showq(8), list Postfix mail queue
-/*	smtp(8), Postfix SMTP client
+/*	smtp(8), lmtp(8), Postfix SMTP+LMTP client
 /*	smtpd(8), Postfix SMTP server
 /*	spawn(8), run non-Postfix server
 /*	tlsmgr(8), Postfix TLS cache and randomness manager
@@ -237,6 +238,21 @@
 /*	IBM T.J. Watson Research
 /*	P.O. Box 704
 /*	Yorktown Heights, NY 10598, USA
+/*
+/*	SASL support originally by:
+/*	Till Franke
+/*	SuSE Rhein/Main AG
+/*	65760 Eschborn, Germany
+/*
+/*	LMTP support originally by:
+/*	Philip A. Prindeville
+/*	Mirapoint, Inc.
+/*	USA.
+/*
+/*	Amos Gouaux
+/*	University of Texas at Dallas
+/*	P.O. Box 830688, MC34
+/*	Richardson, TX 75083, USA
 /*--*/
 
 /* System library. */

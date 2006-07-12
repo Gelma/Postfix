@@ -20,7 +20,8 @@
 /*	output. This is currently the only supported method.
 /* .IP \fB-v\fR
 /*	Enable verbose logging for debugging purposes. Multiple \fB-v\fR
-/*	options make the software increasingly verbose.
+/*	options make the software increasingly verbose. As of Postfix 2.3,
+/*	this option is available for the super-user only.
 /* SECURITY
 /* .ad
 /* .fi
@@ -133,6 +134,7 @@
 #include <record.h>
 #include <rec_type.h>
 #include <user_acl.h>
+#include <rec_attr_map.h>
 
 /* Application-specific. */
 
@@ -165,46 +167,43 @@ static CONFIG_STR_TABLE str_table[] = {
   */
 static char *postdrop_path;
 
-/* postdrop_cleanup - callback for the runtime error handler */
-
-static void postdrop_cleanup(void)
-{
-
-    /*
-     * This is the fatal error handler. Don't try to do anything fancy.
-     * 
-     * msg_xxx() does not allocate memory, so it is safe as long as the signal
-     * handler can't be invoked recursively.
-     */
-    if (postdrop_path) {
-	if (remove(postdrop_path))
-	    msg_warn("uid=%ld: remove %s: %m", (long) getuid(), postdrop_path);
-	else if (msg_verbose)
-	    msg_info("remove %s", postdrop_path);
-	postdrop_path = 0;
-    }
-}
-
 /* postdrop_sig - catch signal and clean up */
 
 static void postdrop_sig(int sig)
 {
 
     /*
-     * Assume atomic signal() updates, even when emulated with sigaction().
-     * We use the in-kernel SIGINT handler address as an atomic variable to
+     * This is the fatal error handler. Don't try to do anything fancy.
+     * 
+     * msg_vstream does not allocate memory, but msg_syslog may indirectly in
+     * syslog(), so it should not be called from a user-triggered signal
+     * handler.
+     * 
+     * Assume atomic signal() updates, even when emulated with sigaction(). We
+     * use the in-kernel SIGINT handler address as an atomic variable to
      * prevent nested postdrop_sig() calls. For this reason, main() must
      * configure postdrop_sig() as SIGINT handler before other signal
      * handlers are allowed to invoke postdrop_sig().
      */
     if (signal(SIGINT, SIG_IGN) != SIG_IGN) {
-	(void)signal(SIGQUIT, SIG_IGN);
-	(void)signal(SIGTERM, SIG_IGN);
-	(void)signal(SIGHUP, SIG_IGN);
-	postdrop_cleanup();
+	(void) signal(SIGQUIT, SIG_IGN);
+	(void) signal(SIGTERM, SIG_IGN);
+	(void) signal(SIGHUP, SIG_IGN);
+	if (postdrop_path) {
+	    (void) remove(postdrop_path);
+	    postdrop_path = 0;
+	}
 	/* Future proofing. If you need exit() here then you broke Postfix. */
-	_exit(sig);
+	if (sig)
+	    _exit(sig);
     }
+}
+
+/* postdrop_cleanup - callback for the runtime error handler */
+
+static void postdrop_cleanup(void)
+{
+    postdrop_sig(0);
 }
 
 /* main - the main program */
@@ -228,6 +227,8 @@ int     main(int argc, char **argv)
     char   *attr_name;
     char   *attr_value;
     const char *errstr;
+    char   *junk;
+    struct timeval start;
 
     /*
      * Be consistent with file permissions.
@@ -249,7 +250,7 @@ int     main(int argc, char **argv)
      */
     argv[0] = "postdrop";
     msg_vstream_init(argv[0], VSTREAM_ERR);
-    msg_syslog_init(mail_task(argv[0]), LOG_PID, LOG_FACILITY);
+    msg_syslog_init(mail_task("postdrop"), LOG_PID, LOG_FACILITY);
     set_mail_conf_str(VAR_PROCNAME, var_procname = mystrdup(argv[0]));
 
     /*
@@ -267,7 +268,8 @@ int     main(int argc, char **argv)
 	case 'r':				/* forward compatibility */
 	    break;
 	case 'v':
-	    msg_verbose++;
+	    if (geteuid() == 0)
+		msg_verbose++;
 	    break;
 	default:
 	    msg_fatal("usage: %s [-c config_dir] [-v]", argv[0]);
@@ -335,6 +337,11 @@ int     main(int argc, char **argv)
     /* End of initializations. */
 
     /*
+     * Don't trust the caller's time information.
+     */
+    GETTIMEOFDAY(&start);
+
+    /*
      * Create queue file. mail_stream_file() never fails. Send the queue ID
      * to the caller. Stash away a copy of the queue file name so we can
      * clean up in case of a fatal error or an interrupt.
@@ -364,8 +371,12 @@ int     main(int argc, char **argv)
     vstream_control(VSTREAM_IN, VSTREAM_CTL_PATH, "stdin", VSTREAM_CTL_END);
     buf = vstring_alloc(100);
     expected = segment_info;
+    /* Override time information from the untrusted caller. */
+    rec_fprintf(dst->stream, REC_TYPE_TIME, REC_TYPE_TIME_FORMAT,
+		REC_TYPE_TIME_ARG(start));
     for (;;) {
-	rec_type = rec_get(VSTREAM_IN, buf, var_line_limit);
+	/* Don't allow PTR records. */
+	rec_type = rec_get_raw(VSTREAM_IN, buf, var_line_limit, REC_FLAG_NONE);
 	if (rec_type == REC_TYPE_EOF) {		/* request cancelled */
 	    mail_stream_cleanup(dst);
 	    if (remove(postdrop_path))
@@ -382,6 +393,9 @@ int     main(int argc, char **argv)
 	    msg_fatal("uid=%ld: unexpected record type: %d", (long) uid, rec_type);
 	if (rec_type == **expected)
 	    expected++;
+	/* Override time information from the untrusted caller. */
+	if (rec_type == REC_TYPE_TIME)
+	    continue;
 	if (rec_type == REC_TYPE_ATTR) {
 	    if ((error_text = split_nameval(vstring_str(buf), &attr_name,
 					    &attr_value)) != 0) {
@@ -395,6 +409,12 @@ int     main(int argc, char **argv)
 		 && (STREQ(attr_value, MAIL_ATTR_ENC_7BIT)
 		     || STREQ(attr_value, MAIL_ATTR_ENC_8BIT)
 		     || STREQ(attr_value, MAIL_ATTR_ENC_NONE)))
+		|| STREQ(attr_name, MAIL_ATTR_DSN_ENVID)
+		|| STREQ(attr_name, MAIL_ATTR_DSN_NOTIFY)
+		|| rec_attr_map(attr_name)
+		|| (STREQ(attr_name, MAIL_ATTR_RWR_CONTEXT)
+		    && (STREQ(attr_value, MAIL_ATTR_RWR_LOCAL)
+			|| STREQ(attr_value, MAIL_ATTR_RWR_REMOTE)))
 		|| STREQ(attr_name, MAIL_ATTR_TRACE_FLAGS)) {	/* XXX */
 		rec_fprintf(dst->stream, REC_TYPE_ATTR, "%s=%s",
 			    attr_name, attr_value);
@@ -428,15 +448,16 @@ int     main(int argc, char **argv)
      * will not be deleted after we have taken responsibility for delivery.
      */
     if (postdrop_path) {
-	myfree(postdrop_path);
+	junk = postdrop_path;
 	postdrop_path = 0;
+	myfree(junk);
     }
 
     /*
      * Send the completion status to the caller and terminate.
      */
     attr_print(VSTREAM_OUT, ATTR_FLAG_NONE,
-	       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, status,
+	       ATTR_TYPE_INT, MAIL_ATTR_STATUS, status,
 	       ATTR_TYPE_STR, MAIL_ATTR_WHY, "",
 	       ATTR_TYPE_END);
     vstream_fflush(VSTREAM_OUT);

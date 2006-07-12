@@ -49,7 +49,7 @@
 /* .ad
 /* .fi
 /*	The following \fBmain.cf\fR parameters are especially relevant to
-/*	this program. 
+/*	this program.
 /*	The text below provides only a parameter summary. See
 /*	\fBpostconf\fR(5) for more details including examples.
 /* LOCKING CONTROLS
@@ -118,6 +118,7 @@
 #include <sys_exits.h>
 #include <mbox_conf.h>
 #include <mbox_open.h>
+#include <dsn_util.h>
 
 /* Application-specific. */
 
@@ -139,7 +140,7 @@ static void fatal_exit(void)
 
 int     main(int argc, char **argv)
 {
-    VSTRING *why;
+    DSN_BUF *why;
     char   *folder;
     char  **command;
     int     ch;
@@ -218,11 +219,12 @@ int     main(int argc, char **argv)
      * Lock the folder for exclusive access. Lose the lock upon exit. The
      * command is not supposed to disappear into the background.
      */
-    why = vstring_alloc(1);
+    why = dsb_create();
     if ((mp = mbox_open(folder, O_APPEND | O_WRONLY | O_CREAT,
 			S_IRUSR | S_IWUSR, (struct stat *) 0,
-			-1, -1, lock_mask, why)) == 0)
-	msg_fatal("open file %s: %s", folder, vstring_str(why));
+			-1, -1, lock_mask, "5.2.0", why)) == 0)
+	msg_fatal("open file %s: %s", folder, vstring_str(why->reason));
+    dsb_free(why);
 
     /*
      * Run the command. Remove the lock after completion.
@@ -237,11 +239,13 @@ int     main(int argc, char **argv)
     }
     switch (pid) {
     case 0:
+	(void) msg_cleanup((MSG_CLEANUP_FN) 0);
 	execvp(command[0], command);
 	msg_fatal("execvp %s: %m", command[0]);
     default:
 	if (waitpid(pid, &status, 0) < 0)
 	    msg_fatal("waitpid: %m");
+	vstream_fclose(mp->fp);
 	mbox_release(mp);
 	exit(WIFEXITED(status) ? WEXITSTATUS(status) : 1);
     }

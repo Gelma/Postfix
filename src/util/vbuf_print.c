@@ -96,19 +96,20 @@
 
 #define VBUF_STRCAT(bp, s) { \
 	unsigned char *_cp = (unsigned char *) (s); \
-	int ch; \
-	while ((ch = *_cp++) != 0) \
-	    VBUF_PUT((bp), ch); \
+	int _ch; \
+	while ((_ch = *_cp++) != 0) \
+	    VBUF_PUT((bp), _ch); \
     }
 
 /* vbuf_print - format string, vsprintf-like interface */
 
 VBUF   *vbuf_print(VBUF *bp, const char *format, va_list ap)
 {
+    const char *myname = "vbuf_print";
     static VSTRING *fmt;		/* format specifier */
     unsigned char *cp;
-    unsigned width;			/* field width */
-    unsigned prec;			/* numerical precision */
+    int     width;			/* width and numerical precision */
+    int     prec;			/* are signed for overflow defense */
     unsigned long_flag;			/* long or plain integer */
     int     ch;
     char   *s;
@@ -155,10 +156,14 @@ VBUF   *vbuf_print(VBUF *bp, const char *format, va_list ap)
 		VSTRING_ADDNUM(fmt, width);
 		cp++;
 	    } else {				/* hard-coded field width */
-		for (width = 0; ISDIGIT(ch = *cp); cp++) {
+		for (width = 0; ch = *cp, ISDIGIT(ch); cp++) {
 		    width = width * 10 + ch - '0';
 		    VSTRING_ADDCH(fmt, ch);
 		}
+	    }
+	    if (width < 0) {
+		msg_warn("%s: bad width %d in %.50s", myname, width, format);
+		width = 0;
 	    }
 	    if (*cp == '.')			/* width/precision separator */
 		VSTRING_ADDCH(fmt, *cp++);
@@ -167,10 +172,14 @@ VBUF   *vbuf_print(VBUF *bp, const char *format, va_list ap)
 		VSTRING_ADDNUM(fmt, prec);
 		cp++;
 	    } else {				/* hard-coded precision */
-		for (prec = 0; ISDIGIT(ch = *cp); cp++) {
+		for (prec = 0; ch = *cp, ISDIGIT(ch); cp++) {
 		    prec = prec * 10 + ch - '0';
 		    VSTRING_ADDCH(fmt, ch);
 		}
+	    }
+	    if (prec < 0) {
+		msg_warn("%s: bad precision %d in %.50s", myname, prec, format);
+		prec = 0;
 	    }
 	    if ((long_flag = (*cp == 'l')) != 0)/* long whatever */
 		VSTRING_ADDCH(fmt, *cp++);

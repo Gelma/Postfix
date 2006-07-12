@@ -73,6 +73,7 @@
 #include <mail_params.h>
 #include <pipe_command.h>
 #include <mail_copy.h>
+#include <dsn_util.h>
 
 /* Application-specific. */
 
@@ -82,8 +83,8 @@
 
 int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *command)
 {
-    char   *myname = "deliver_command";
-    VSTRING *why;
+    const char *myname = "deliver_command";
+    DSN_BUF *why = state.msg_attr.why;
     int     cmd_status;
     int     deliver_status;
     ARGV   *env;
@@ -113,9 +114,11 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
     /*
      * Don't deliver a trace-only request.
      */
-    if (DEL_REQ_TRACE_ONLY(state.request->flags))
-	return (sent(BOUNCE_FLAGS(state.request), SENT_ATTR(state.msg_attr),
-		     "delivers to command: %s", command));
+    if (DEL_REQ_TRACE_ONLY(state.request->flags)) {
+	dsb_simple(why, "2.0.0", "delivers to command: %s", command);
+	return (sent(BOUNCE_FLAGS(state.request),
+		     SENT_ATTR(state.msg_attr)));
+    }
 
     /*
      * DELIVERY RIGHTS
@@ -136,7 +139,6 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
     if (local_deliver_hdr_mask & DELIVER_HDR_CMD)
 	copy_flags |= MAIL_COPY_DELIVERED;
 
-    why = vstring_alloc(1);
     if (vstream_fseek(state.msg_attr.fp, state.msg_attr.offset, SEEK_SET) < 0)
 	msg_fatal("%s: seek queue file %s: %m",
 		  myname, VSTREAM_PATH(state.msg_attr.fp));
@@ -154,7 +156,7 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
 	     "LOGNAME", state.msg_attr.user,
 	     "USER", state.msg_attr.user,
 	     "SENDER", state.msg_attr.sender,
-	     "RECIPIENT", state.msg_attr.recipient,
+	     "RECIPIENT", state.msg_attr.rcpt.address,
 	     "LOCAL", state.msg_attr.local,
 	     ARGV_END);
     if (usr_attr.shell)
@@ -195,7 +197,7 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
 
     if (expand_status & MAC_PARSE_ERROR) {
 	cmd_status = PIPE_STAT_DEFER;
-	vstring_strcpy(why, "Server configuration error");
+	dsb_simple(why, "4.3.5", "mail system configuration error");
 	msg_warn("bad parameter value syntax for %s: %s",
 		 VAR_EXEC_DIRECTORY, var_exec_directory);
     } else {
@@ -205,14 +207,14 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
 				  PIPE_CMD_COMMAND, command,
 				  PIPE_CMD_COPY_FLAGS, copy_flags,
 				  PIPE_CMD_SENDER, state.msg_attr.sender,
-			       PIPE_CMD_ORIG_RCPT, state.msg_attr.orig_rcpt,
+			  PIPE_CMD_ORIG_RCPT, state.msg_attr.rcpt.orig_addr,
 			       PIPE_CMD_DELIVERED, state.msg_attr.delivered,
 				  PIPE_CMD_TIME_LIMIT, var_command_maxtime,
 				  PIPE_CMD_ENV, env->argv,
 				  PIPE_CMD_EXPORT, export_env->argv,
 				  PIPE_CMD_SHELL, var_local_cmd_shell,
-				  PIPE_CMD_CWD, *vstring_str(exec_dir) ?
-				  vstring_str(exec_dir) : (char *) 0,
+				  PIPE_CMD_CWD, *STR(exec_dir) ?
+				  STR(exec_dir) : (char *) 0,
 				  PIPE_CMD_END);
     }
     vstring_free(exec_dir);
@@ -224,19 +226,17 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
      */
     switch (cmd_status) {
     case PIPE_STAT_OK:
+	dsb_simple(why, "2.0.0", "delivered to command: %s", command);
 	deliver_status = sent(BOUNCE_FLAGS(state.request),
-			      SENT_ATTR(state.msg_attr),
-			      "delivered to command: %s", command);
+			      SENT_ATTR(state.msg_attr));
 	break;
     case PIPE_STAT_BOUNCE:
-	deliver_status = bounce_append(BOUNCE_FLAGS(state.request),
-				       BOUNCE_ATTR(state.msg_attr),
-				       "%s", vstring_str(why));
-	break;
     case PIPE_STAT_DEFER:
-	deliver_status = defer_append(BOUNCE_FLAGS(state.request),
-				      BOUNCE_ATTR(state.msg_attr),
-				      "%s", vstring_str(why));
+	deliver_status =
+	    (STR(why->status)[0] == '4' ?
+	     defer_append : bounce_append)
+	    (BOUNCE_FLAGS(state.request),
+	     BOUNCE_ATTR(state.msg_attr));
 	break;
     case PIPE_STAT_CORRUPT:
 	deliver_status = DEL_STAT_DEFER;
@@ -245,11 +245,6 @@ int     deliver_command(LOCAL_STATE state, USER_ATTR usr_attr, const char *comma
 	msg_panic("%s: bad status %d", myname, cmd_status);
 	/* NOTREACHED */
     }
-
-    /*
-     * Cleanup.
-     */
-    vstring_free(why);
 
     return (deliver_status);
 }

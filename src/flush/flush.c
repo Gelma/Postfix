@@ -267,7 +267,7 @@ static int flush_policy_ok(const char *site)
 
 static int flush_add_service(const char *site, const char *queue_id)
 {
-    char   *myname = "flush_add_service";
+    const char *myname = "flush_add_service";
     VSTRING *site_path;
     int     status;
 
@@ -294,7 +294,7 @@ static int flush_add_service(const char *site, const char *queue_id)
 
 static int flush_add_path(const char *path, const char *queue_id)
 {
-    char   *myname = "flush_add_path";
+    const char *myname = "flush_add_path";
     VSTREAM *log;
 
     /*
@@ -343,7 +343,7 @@ static int flush_add_path(const char *path, const char *queue_id)
 
 static int flush_send_service(const char *site, int how)
 {
-    char   *myname = "flush_send_service";
+    const char *myname = "flush_send_service";
     VSTRING *site_path;
     int     status;
 
@@ -503,7 +503,7 @@ static int flush_send_path(const char *path, int how)
 
 static int flush_refresh_service(int max_age)
 {
-    char   *myname = "flush_refresh_service";
+    const char *myname = "flush_refresh_service";
     SCAN_DIR *scan;
     char   *site_path;
     struct stat st;
@@ -631,7 +631,7 @@ static void flush_service(VSTREAM *client_stream, char *unused_service,
 		&& mail_queue_id_ok(STR(queue_id)))
 		status = flush_add_service(lowercase(STR(site)), STR(queue_id));
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, status,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, status,
 		       ATTR_TYPE_END);
 	} else if (STREQ(STR(request), FLUSH_REQ_SEND)) {
 	    site = vstring_alloc(10);
@@ -641,25 +641,25 @@ static void flush_service(VSTREAM *client_stream, char *unused_service,
 		status = flush_send_service(lowercase(STR(site)),
 					    REFRESH_AND_DELIVER);
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, status,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, status,
 		       ATTR_TYPE_END);
 	} else if (STREQ(STR(request), FLUSH_REQ_REFRESH)
 		   || STREQ(STR(request), wakeup)) {
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, FLUSH_STAT_OK,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, FLUSH_STAT_OK,
 		       ATTR_TYPE_END);
 	    vstream_fflush(client_stream);
 	    (void) flush_refresh_service(var_fflush_refresh);
 	} else if (STREQ(STR(request), FLUSH_REQ_PURGE)) {
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, FLUSH_STAT_OK,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, FLUSH_STAT_OK,
 		       ATTR_TYPE_END);
 	    vstream_fflush(client_stream);
 	    (void) flush_refresh_service(0);
 	}
     } else
 	attr_print(client_stream, ATTR_FLAG_NONE,
-		   ATTR_TYPE_NUM, MAIL_ATTR_STATUS, status,
+		   ATTR_TYPE_INT, MAIL_ATTR_STATUS, status,
 		   ATTR_TYPE_END);
     vstring_free(request);
     if (site)

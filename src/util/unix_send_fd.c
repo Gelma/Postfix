@@ -36,6 +36,7 @@
 #include <sys_defs.h>			/* includes <sys/types.h> */
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <string.h>
 
 /* Utility library. */
 
@@ -52,7 +53,7 @@ int     unix_send_fd(int fd, int sendfd)
      * not compile with version <2 Linux libraries.
      */
 #ifdef CANT_USE_SEND_RECV_MSG
-    char   *myname = "unix_send_fd";
+    const char *myname = "unix_send_fd";
 
     msg_warn("%s: your system has no support for file descriptor passing",
 	     myname);
@@ -63,17 +64,19 @@ int     unix_send_fd(int fd, int sendfd)
 
     /*
      * Adapted from: W. Richard Stevens, UNIX Network Programming, Volume 1,
-     * Second edition.
+     * Second edition. Except that we use CMSG_LEN instead of CMSG_SPACE; the
+     * latter breaks on LP64 systems.
      */
 #if defined(CMSG_SPACE) && !defined(NO_MSGHDR_MSG_CONTROL)
     union {
-	struct msghdr just_for_alignment;
+	struct cmsghdr just_for_alignment;
 	char    control[CMSG_SPACE(sizeof(sendfd))];
     }       control_un;
     struct cmsghdr *cmptr;
 
+    memset((char *) &msg, 0, sizeof(msg));		/* Fix 200512 */
     msg.msg_control = control_un.control;
-    msg.msg_controllen = sizeof(control_un.control);
+    msg.msg_controllen = CMSG_LEN(sizeof(sendfd));	/* Fix 200506 */
 
     cmptr = CMSG_FIRSTHDR(&msg);
     cmptr->cmsg_len = CMSG_LEN(sizeof(sendfd));
@@ -109,6 +112,8 @@ int     unix_send_fd(int fd, int sendfd)
   * to the unix_recv_fd test program.
   */
 #include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <split_at.h>
 #include <connect.h>

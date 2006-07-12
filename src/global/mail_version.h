@@ -13,22 +13,31 @@
 
  /*
   * Version of this program. Official versions are called a.b.c, and
-  * snapshots are called a.b-yyyymmdd, where a=major release number,
-  * b=minor release number, c=patchlevel, and yyyymmdd is the release date:
+  * snapshots are called a.b-yyyymmdd, where a=major release number, b=minor
+  * release number, c=patchlevel, and yyyymmdd is the release date:
   * yyyy=year, mm=month, dd=day.
-  * 
-  * Patches change the patchlevel and the release date. Snapshots change the
-  * release date only.
+  *
+  * Patches change both the patchlevel and the release date. Snapshots have no
+  * patchlevel; they change the release date only.
   */
-#define MAIL_RELEASE_DATE	"20050309"
-#define MAIL_VERSION_NUMBER	"2.2.0"
+#define MAIL_RELEASE_DATE	"20060711"
+#define MAIL_VERSION_NUMBER	"2.3.0"
+
+#ifdef SNAPSHOT
+# define MAIL_VERSION_DATE	"-" MAIL_RELEASE_DATE
+#else
+# define MAIL_VERSION_DATE	""
+#endif
+
+#ifdef NONPROD
+# define MAIL_VERSION_PROD	"-nonprod"
+#else
+# define MAIL_VERSION_PROD	""
+#endif
 
 #define VAR_MAIL_VERSION	"mail_version"
-#ifdef SNAPSHOT
-#define DEF_MAIL_VERSION	MAIL_VERSION_NUMBER "-" MAIL_RELEASE_DATE
-#else
-#define DEF_MAIL_VERSION	MAIL_VERSION_NUMBER
-#endif
+#define DEF_MAIL_VERSION	MAIL_VERSION_NUMBER MAIL_VERSION_DATE MAIL_VERSION_PROD
+
 extern char *var_mail_version;
 
  /*

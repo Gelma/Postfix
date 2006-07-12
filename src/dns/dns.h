@@ -19,6 +19,9 @@
 #ifdef RESOLVE_H_NEEDS_STDIO_H
 #include <stdio.h>
 #endif
+#ifdef RESOLVE_H_NEEDS_NAMESER8_COMPAT_H
+#include <nameser8_compat.h>
+#endif
 #include <resolv.h>
 
  /*
@@ -77,13 +80,14 @@ typedef struct DNS_FIXED {
   * named after the things one can expect to find in a DNS resource record.
   */
 typedef struct DNS_RR {
-    char   *name;			/* name, mystrdup()ed */
+    char   *qname;			/* query name, mystrdup()ed */
+    char   *rname;			/* reply name, mystrdup()ed */
     unsigned short type;		/* T_A, T_CNAME, etc. */
     unsigned short class;		/* C_IN, etc. */
     unsigned int ttl;			/* always */
     unsigned short pref;		/* T_MX only */
     struct DNS_RR *next;		/* linkage */
-    unsigned data_len;			/* actual data size */
+    size_t  data_len;			/* actual data size */
     char    data[1];			/* actually a bunch of data */
 } DNS_RR;
 
@@ -101,13 +105,15 @@ extern unsigned dns_type(const char *);
  /*
   * dns_rr.c
   */
-extern DNS_RR *dns_rr_create(const char *, ushort, ushort,
+extern DNS_RR *dns_rr_create(const char *, const char *,
+			             ushort, ushort,
 			             unsigned, unsigned,
-			             const char *, unsigned);
+			             const char *, size_t);
 extern void dns_rr_free(DNS_RR *);
 extern DNS_RR *dns_rr_copy(DNS_RR *);
 extern DNS_RR *dns_rr_append(DNS_RR *, DNS_RR *);
 extern DNS_RR *dns_rr_sort(DNS_RR *, int (*) (DNS_RR *, DNS_RR *));
+extern int dns_rr_compare_pref(DNS_RR *, DNS_RR *);
 extern DNS_RR *dns_rr_shuffle(DNS_RR *);
 extern DNS_RR *dns_rr_remove(DNS_RR *, DNS_RR *);
 
@@ -157,13 +163,15 @@ extern int dns_lookup_v(const char *, unsigned, DNS_RR **, VSTRING *,
  /*
   * Request flags.
   */
-#define DNS_REQ_FLAG_ANY	(1<<0)
-#define DNS_REQ_FLAG_ALL	(1<<1)
+#define DNS_REQ_FLAG_STOP_OK	(1<<0)
+#define DNS_REQ_FLAG_STOP_INVAL	(1<<1)
+#define DNS_REQ_FLAG_NONE	(0)
 
  /*
   * Status codes. Failures must have negative codes so they will not collide
   * with valid counts of answer records etc.
   */
+#define DNS_INVAL	(-5)		/* query ok, malformed reply */
 #define DNS_FAIL	(-4)		/* query failed, don't retry */
 #define DNS_NOTFOUND	(-3)		/* query ok, data not found */
 #define DNS_RETRY	(-2)		/* query failed, try again */

@@ -266,11 +266,18 @@ static int verify_parse_entry(char *buf, int *status, long *probed,
 	*probed = atol(probed_text);
 	*updated = atol(updated_text);
 	*status = atoi(buf);
+
+	/*
+	 * Coverity 200604: the code incorrectly tested (probed || updated),
+	 * so that the sanity check never detected all-zero time stamps. Such
+	 * records are never written. If we read a record with all-zero time
+	 * stamps, then something is badly broken.
+	 */
 	if ((*status == DEL_RCPT_STAT_OK
 	     || *status == DEL_RCPT_STAT_DEFER
 	     || *status == DEL_RCPT_STAT_BOUNCE
 	     || *status == DEL_RCPT_STAT_TODO)
-	    && (probed || updated))
+	    && (*probed || *updated))
 	    return (0);
     }
     msg_warn("bad address verify table entry: %.100s", buf);
@@ -305,7 +312,7 @@ static void verify_update_service(VSTREAM *client_stream)
 
     if (attr_scan(client_stream, ATTR_FLAG_STRICT,
 		  ATTR_TYPE_STR, MAIL_ATTR_ADDR, addr,
-		  ATTR_TYPE_NUM, MAIL_ATTR_ADDR_STATUS, &addr_status,
+		  ATTR_TYPE_INT, MAIL_ATTR_ADDR_STATUS, &addr_status,
 		  ATTR_TYPE_STR, MAIL_ATTR_WHY, text,
 		  ATTR_TYPE_END) == 3) {
 	/* FIX 200501 IPv6 patch did not neuter ":" in address literals. */
@@ -314,7 +321,7 @@ static void verify_update_service(VSTREAM *client_stream)
 	    msg_warn("bad recipient status %d for recipient %s",
 		     addr_status, STR(addr));
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, VRFY_STAT_BAD,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, VRFY_STAT_BAD,
 		       ATTR_TYPE_END);
 	} else {
 
@@ -336,7 +343,7 @@ static void verify_update_service(VSTREAM *client_stream)
 		dict_put(verify_map, STR(addr), STR(buf));
 	    }
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, VRFY_STAT_OK,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, VRFY_STAT_OK,
 		       ATTR_TYPE_END);
 	}
     }
@@ -370,7 +377,6 @@ static void verify_query_service(VSTREAM *client_stream)
     long    probed;
     long    updated;
     char   *text;
-    VSTREAM *post;
 
     if (attr_scan(client_stream, ATTR_FLAG_STRICT,
 		  ATTR_TYPE_STR, MAIL_ATTR_ADDR, addr,
@@ -424,8 +430,8 @@ static void verify_query_service(VSTREAM *client_stream)
 	 * Respond to the client.
 	 */
 	attr_print(client_stream, ATTR_FLAG_NONE,
-		   ATTR_TYPE_NUM, MAIL_ATTR_STATUS, VRFY_STAT_OK,
-		   ATTR_TYPE_NUM, MAIL_ATTR_ADDR_STATUS, addr_status,
+		   ATTR_TYPE_INT, MAIL_ATTR_STATUS, VRFY_STAT_OK,
+		   ATTR_TYPE_INT, MAIL_ATTR_ADDR_STATUS, addr_status,
 		   ATTR_TYPE_STR, MAIL_ATTR_WHY, text,
 		   ATTR_TYPE_END);
 
@@ -453,8 +459,9 @@ static void verify_query_service(VSTREAM *client_stream)
 			 STR(addr), addr_status, now, updated);
 	    post_mail_fopen_async(strcmp(var_verify_sender, "<>") == 0 ?
 				  "" : var_verify_sender, STR(addr),
-				  CLEANUP_FLAG_MASK_INTERNAL,
-				  DEL_REQ_FLAG_VERIFY,
+				  INT_FILT_NONE,
+				  DEL_REQ_FLAG_MTA_VRFY,
+				  (VSTRING *) 0,
 				  verify_post_mail_action,
 				  (void *) 0);
 	    if (updated != 0 || var_verify_neg_cache != 0) {
@@ -503,7 +510,7 @@ static void verify_service(VSTREAM *client_stream, char *unused_service,
 	} else {
 	    msg_warn("unrecognized request: \"%s\", ignored", STR(request));
 	    attr_print(client_stream, ATTR_FLAG_NONE,
-		       ATTR_TYPE_NUM, MAIL_ATTR_STATUS, VRFY_STAT_BAD,
+		       ATTR_TYPE_INT, MAIL_ATTR_STATUS, VRFY_STAT_BAD,
 		       ATTR_TYPE_END);
 	}
     }

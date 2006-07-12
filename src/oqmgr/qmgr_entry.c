@@ -94,7 +94,7 @@
 
 QMGR_ENTRY *qmgr_entry_select(QMGR_QUEUE *queue)
 {
-    char   *myname = "qmgr_entry_select";
+    const char *myname = "qmgr_entry_select";
     QMGR_ENTRY *entry;
 
     if ((entry = queue->todo.prev) != 0) {
@@ -196,7 +196,7 @@ void    qmgr_entry_done(QMGR_ENTRY *entry, int which)
      * accordingly.
      */
     qmgr_recipient_count -= entry->rcpt_list.len;
-    qmgr_rcpt_list_free(&entry->rcpt_list);
+    recipient_list_free(&entry->rcpt_list);
 
     myfree((char *) entry);
 
@@ -261,7 +261,7 @@ QMGR_ENTRY *qmgr_entry_create(QMGR_QUEUE *queue, QMGR_MESSAGE *message)
     entry = (QMGR_ENTRY *) mymalloc(sizeof(QMGR_ENTRY));
     entry->stream = 0;
     entry->message = message;
-    qmgr_rcpt_list_init(&entry->rcpt_list);
+    recipient_list_init(&entry->rcpt_list, RCPT_LIST_INIT_QUEUE);
     message->refcount++;
     entry->queue = queue;
     QMGR_LIST_APPEND(queue->todo, entry);
