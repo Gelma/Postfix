@@ -39,7 +39,7 @@ may be used by any SMTP+LMTP client for a subsequent transaction.
 
 By default, connection caching is enabled temporarily for
 destinations that have a high volume of mail in the active
-queue. Session caching can be enabled permanently for
+queue. Connection caching can be enabled permanently for
 specific destinations.
 .SH "SMTP DESTINATION SYNTAX"
 .na
@@ -140,9 +140,9 @@ connections are cached in-process, making it ineffective
 when the client is used for multiple domains.
 
 Most smtp_\fIxxx\fR configuration parameters have an
-lmtp_\fIxxx\fR "ghost" parameter for the equivalent LMTP
+lmtp_\fIxxx\fR "mirror" parameter for the equivalent LMTP
 feature. This document describes only those LMTP-related
-parameters that aren't simply "ghost" parameters.
+parameters that aren't simply "mirror" parameters.
 
 Changes to \fBmain.cf\fR are picked up automatically, as \fBsmtp\fR(8)
 processes run for only a limited amount of time. Use the command
@@ -171,9 +171,16 @@ How long the Postfix SMTP client pauses before sending
 ".<CR><LF>" in order to work around the PIX firewall
 "<CR><LF>.<CR><LF>" bug.
 .IP "\fBsmtp_pix_workaround_threshold_time (500s)\fR"
-How long a message must be queued before the PIX firewall
-"<CR><LF>.<CR><LF>" bug workaround is turned
-on for delivery through firewalls with "smtp fixup" mode turned on.
+How long a message must be queued before the Postfix SMTP client
+turns on the PIX firewall "<CR><LF>.<CR><LF>"
+bug workaround for delivery through firewalls with "smtp fixup"
+mode turned on.
+.IP "\fBsmtp_pix_workarounds (disable_esmtp, delay_dotcrlf)\fR"
+A list that specifies zero or more workarounds for CISCO PIX
+firewall bugs.
+.IP "\fBsmtp_pix_workaround_maps (empty)\fR"
+Lookup tables, indexed by the remote SMTP server address, with
+per-destination workarounds for CISCO PIX firewall bugs.
 .IP "\fBsmtp_quote_rfc821_envelope (yes)\fR"
 Quote addresses in SMTP MAIL FROM and RCPT TO commands as required
 by RFC 821.
@@ -215,7 +222,7 @@ Lookup tables, indexed by the remote LMTP server address, with
 case insensitive lists of LHLO keywords (pipelining, starttls,
 auth, etc.) that the LMTP client will ignore in the LHLO response
 from a remote LMTP server.
-.IP "\fBlmtp_discard_lhlo_keywords ($myhostname)\fR"
+.IP "\fBlmtp_discard_lhlo_keywords (empty)\fR"
 A case insensitive list of LHLO keywords (pipelining, starttls,
 auth, etc.) that the LMTP client will ignore in the LHLO response
 from a remote LMTP server.
@@ -262,11 +269,6 @@ If non-empty, a Postfix SMTP client filter for the remote SMTP
 server's list of offered SASL mechanisms.
 .PP
 Available in Postfix version 2.3 and later:
-.IP "\fBsmtp_sasl_auth_enforce (yes)\fR"
-If sender-dependent SASL passwords are turned off, defer mail
-delivery when an SMTP server does not support SASL authentication,
-while smtp_sasl_password_maps contains SASL login/password information
-for that server.
 .IP "\fBsmtp_sender_dependent_authentication (no)\fR"
 Enable sender-dependent authentication in the Postfix SMTP client; this is
 available only with SASL authentication, and disables SMTP connection
@@ -327,6 +329,13 @@ Enable additional Postfix SMTP client logging of TLS activity.
 .IP "\fBsmtp_tls_note_starttls_offer (no)\fR"
 Log the hostname of a remote SMTP server that offers STARTTLS,
 when TLS is not already enabled for that server.
+.IP "\fBsmtp_tls_policy_maps (empty)\fR"
+Optional lookup tables with the Postfix SMTP client TLS security
+policy by next-hop destination; when a non-empty value is specified,
+this overrides the obsolete smtp_tls_per_site parameter.
+.IP "\fBsmtp_tls_mandatory_protocols (SSLv3, TLSv1)\fR"
+List of TLS protocols that the Postfix SMTP client will use
+with mandatory TLS encryption.
 .IP "\fBsmtp_tls_scert_verifydepth (5)\fR"
 The verification depth for remote SMTP server certificates.
 .IP "\fBsmtp_tls_secure_cert_match (nexthop, dot-nexthop)\fR"
@@ -345,15 +354,15 @@ The server certificate peername verification method for the
 The number of pseudo-random bytes that an \fBsmtp\fR(8) or \fBsmtpd\fR(8)
 process requests from the \fBtlsmgr\fR(8) server in order to seed its
 internal pseudo random number generator (PRNG).
-.IP "\fBtls_high_cipherlist (!EXPORT:!LOW:!MEDIUM:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_high_cipherlist (ALL:!EXPORT:!LOW:!MEDIUM:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "HIGH" grade ciphers.
-.IP "\fBtls_medium_cipherlist (!EXPORT:!LOW:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_medium_cipherlist (ALL:!EXPORT:!LOW:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "MEDIUM" or higher grade ciphers.
-.IP "\fBtls_low_cipherlist (!EXPORT:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_low_cipherlist (ALL:!EXPORT:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "LOW" or higher grade ciphers.
 .IP "\fBtls_export_cipherlist (ALL:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "EXPORT" or higher grade ciphers.
-.IP "\fBtls_null_cipherlist (!aNULL:eNULL+kRSA)\fR"
+.IP "\fBtls_null_cipherlist (eNULL:!aNULL)\fR"
 The OpenSSL cipherlist for "NULL" grade ciphers that provide
 authentication without encryption.
 .PP
@@ -515,11 +524,11 @@ communication channel.
 .IP "\fBlmtp_tcp_port (24)\fR"
 The default TCP port that the Postfix LMTP client connects to.
 .IP "\fBmax_idle (100s)\fR"
-The maximum amount of time that an idle Postfix daemon process
-waits for the next service request before exiting.
+The maximum amount of time that an idle Postfix daemon process waits
+for an incoming connection before terminating voluntarily.
 .IP "\fBmax_use (100)\fR"
-The maximal number of connection requests before a Postfix daemon
-process terminates.
+The maximal number of incoming connections that a Postfix daemon
+process will service before terminating voluntarily.
 .IP "\fBprocess_id (read-only)\fR"
 The process ID of a Postfix command or daemon process.
 .IP "\fBprocess_name (read-only)\fR"

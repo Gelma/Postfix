@@ -17,7 +17,7 @@
 #include <name_code.h>
 
  /*
-  * TLS enforcement levels. Non-sentinel values also be used to indicate
+  * TLS enforcement levels. Non-sentinel values may also be used to indicate
   * the actual security level of a session.
   */
 #define TLS_LEV_NOTFOUND	-1	/* sentinel */
@@ -130,6 +130,7 @@ extern NAME_CODE tls_cipher_level_table[];
 
 #define TLS_END_EXCLUDE ((char *)0)
 extern const char *tls_cipher_list(int,...);
+extern const char *tls_set_cipher_list(SSL_CTX *, const char *);
 
  /*
   * tls_client.c
@@ -174,6 +175,7 @@ typedef struct {
     int     verifydepth;
     const char *cache_type;
     long    scache_timeout;
+    int     set_sessid;
     const char *cert_file;
     const char *key_file;
     const char *dcert_file;
@@ -187,9 +189,19 @@ typedef struct {
     int     ask_ccert;
 } tls_server_props;
 
+typedef struct {
+    SSL_CTX *ctx;			/* SSL application context */
+    VSTREAM *stream;			/* Client stream */
+    int     log_level;			/* TLS log level */
+    int     timeout;			/* TLS handshake timeout */
+    int     requirecert;		/* Insist on client cert? */
+    char   *serverid;			/* Server instance (salt cache key) */
+    char   *peername;			/* Client name */
+    char   *peeraddr;			/* Client address */
+} tls_server_start_props;
+
 extern SSL_CTX *tls_server_init(const tls_server_props *);
-extern TLScontext_t *tls_server_start(SSL_CTX *, VSTREAM *, int, int,
-				           const char *, const char *, int);
+extern TLScontext_t *tls_server_start(const tls_server_start_props *props);
 
 #define tls_server_stop(ctx , stream, timeout, failure, TLScontext) \
 	tls_session_stop((ctx), (stream), (timeout), (failure), (TLScontext))

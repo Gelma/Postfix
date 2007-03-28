@@ -52,6 +52,15 @@
 /*	int	rec_goto(stream, where)
 /*	VSTREAM	*stream;
 /*	const char *where;
+/*
+/*	int	rec_pad(stream, type, len)
+/*	VSTREAM *stream;
+/*	int	type;
+/*	int	len;
+/*
+/*	REC_SPACE_NEED(buflen, reclen)
+/*	ssize_t	buflen;
+/*	ssize_t	reclen;
 /* DESCRIPTION
 /*	This module reads and writes typed variable-length records.
 /*	Each record contains a 1-byte type code (0..255), a length
@@ -77,8 +86,8 @@
 /*	and REC_FLAG_DEFAULT for normal use.
 /*
 /*	rec_get() is a wrapper around rec_get_raw() that always
-/*	enables the REC_FLAG_FOLLOW_PTR and REC_FLAG_SKIP_DTXT
-/*	features.
+/*	enables the REC_FLAG_FOLLOW_PTR, REC_FLAG_SKIP_DTXT
+/*	and REC_FLAG_SEEK_END features.
 /*
 /*	rec_put() stores the specified record and returns the record
 /*	type, or REC_TYPE_ERROR in case of problems.
@@ -102,6 +111,13 @@
 /*	the file pointer to the specified location. A zero position
 /*	means do nothing. The result is REC_TYPE_ERROR in case of
 /*	failure.
+/*
+/*	rec_pad() writes a record that occupies the larger of (the
+/*	specified amount) or (an implementation-defined minimum).
+/*
+/*	REC_SPACE_NEED(buflen, reclen) converts the specified buffer
+/*	length into a record length. This macro modifies its second
+/*	argument.
 /* DIAGNOSTICS
 /*	Panics: interface violations. Fatal errors: insufficient memory.
 /*	Warnings: corrupted file.
@@ -293,18 +309,45 @@ int     rec_get_raw(VSTREAM *stream, VSTRING *buf, ssize_t maxsize, int flags)
 int     rec_goto(VSTREAM *stream, const char *buf)
 {
     off_t   offset;
+    static const char *saved_path;
+    static off_t saved_offset;
+    static int reverse_count;
 
+    /*
+     * Crude workaround for queue file loops. VSTREAMs currently have no
+     * option to attach application-specific data, so we use global state and
+     * simple logic to detect if an application switches streams. We trigger
+     * on reverse jumps only. There's one reverse jump for every inserted
+     * header, but only one reverse jump for all appended recipients. No-one
+     * is likely to insert 10000 message headers, but someone might append
+     * 10000 recipients.
+     */
+#define STREQ(x,y) ((x) == (y) && strcmp((x), (y)) == 0)
+#define REVERSE_JUMP_LIMIT	10000
+
+    if (!STREQ(saved_path, VSTREAM_PATH(stream))) {
+	saved_path = VSTREAM_PATH(stream);
+	reverse_count = 0;
+	saved_offset = 0;
+    }
     while (ISSPACE(*buf))
 	buf++;
     if ((offset = off_cvt_string(buf)) < 0) {
 	msg_warn("%s: malformed pointer record value: %s",
 		 VSTREAM_PATH(stream), buf);
 	return (REC_TYPE_ERROR);
-    } else if (offset > 0 && vstream_fseek(stream, offset, SEEK_SET) < 0) {
+    } else if (offset == 0) {
+	/* Dummy record. */
+	return (0);
+    } else if (offset <= saved_offset && ++reverse_count > REVERSE_JUMP_LIMIT) {
+	msg_warn("%s: too many reverse jump records", VSTREAM_PATH(stream));
+	return (REC_TYPE_ERROR);
+    } else if (vstream_fseek(stream, offset, SEEK_SET) < 0) {
 	msg_warn("%s: seek error after pointer record: %m",
 		 VSTREAM_PATH(stream));
 	return (REC_TYPE_ERROR);
     } else {
+	saved_offset = offset;
 	return (0);
     }
 }
@@ -344,4 +387,14 @@ int     rec_fprintf(VSTREAM *stream, int type, const char *format,...)
 int     rec_fputs(VSTREAM *stream, int type, const char *str)
 {
     return (rec_put(stream, type, str, str ? strlen(str) : 0));
+}
+
+/* rec_pad - write padding record */
+
+int     rec_pad(VSTREAM *stream, int type, int len)
+{
+    int     width = len - 2;		/* type + length */
+
+    return (rec_fprintf(stream, type, "%*s",
+			width < 1 ? 1 : width, "0"));
 }

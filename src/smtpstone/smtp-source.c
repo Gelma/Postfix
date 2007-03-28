@@ -17,6 +17,9 @@
 /*	Connections can be made to UNIX-domain and IPv4 or IPv6 servers.
 /*	IPv4 and IPv6 are the default.
 /*
+/*	Note: this is an unsupported test program. No attempt is made
+/*	to maintain compatibility between successive versions.
+/*
 /*	Arguments:
 /* .IP \fB-4\fR
 /*	Connect to the server with IPv4. This option has no effect when
@@ -134,6 +137,7 @@
 
 #include <smtp_stream.h>
 #include <mail_date.h>
+#include <mail_version.h>
 
 /* Application-specific. */
 
@@ -464,6 +468,7 @@ static void connect_done(int unused_event, char *context)
 	fail_connect(session);
     } else {
 	non_blocking(fd, BLOCKING);
+	/* Disable write events. */
 	event_disable_readwrite(fd);
 	event_enable_read(fd, read_banner, (char *) session);
 	dequeue_connect(session);
@@ -510,14 +515,13 @@ static void send_helo(SESSION *session)
      * Send the standard greeting with our hostname
      */
     if ((except = vstream_setjmp(session->stream)) != 0)
-	msg_fatal("%s while sending HELO", exception_text(except));
+	msg_fatal("%s while sending %s", exception_text(except), protocol);
 
     command(session->stream, "%s %s", protocol, var_myhostname);
 
     /*
      * Prepare for the next event.
      */
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), helo_done, (char *) session);
 }
 
@@ -528,15 +532,16 @@ static void helo_done(int unused_event, char *context)
     SESSION *session = (SESSION *) context;
     RESPONSE *resp;
     int     except;
+    const char *protocol = (talk_lmtp ? "LHLO" : "HELO");
 
     /*
      * Get response to HELO command.
      */
     if ((except = vstream_setjmp(session->stream)) != 0)
-	msg_fatal("%s while sending HELO", exception_text(except));
+	msg_fatal("%s while sending %s", exception_text(except), protocol);
 
     if ((resp = response(session->stream, buffer))->code / 100 != 2)
-	msg_fatal("HELO rejected: %d %s", resp->code, resp->str);
+	msg_fatal("%s rejected: %d %s", protocol, resp->code, resp->str);
 
     send_mail(session);
 }
@@ -558,7 +563,6 @@ static void send_mail(SESSION *session)
     /*
      * Prepare for the next event.
      */
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), mail_done, (char *) session);
 }
 
@@ -609,7 +613,6 @@ static void send_rcpt(int unused_event, char *context)
     /*
      * Prepare for the next event.
      */
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), rcpt_done, (char *) session);
 }
 
@@ -656,7 +659,6 @@ static void send_data(int unused_event, char *context)
     /*
      * Prepare for the next event.
      */
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), data_done, (char *) session);
 }
 
@@ -732,7 +734,6 @@ static void data_done(int unused_event, char *context)
     /*
      * Prepare for the next event.
      */
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), dot_done, (char *) session);
 }
 
@@ -771,7 +772,6 @@ static void dot_done(int unused_event, char *context)
 static void send_quit(SESSION *session)
 {
     command(session->stream, "QUIT");
-    event_disable_readwrite(vstream_fileno(session->stream));
     event_enable_read(vstream_fileno(session->stream), quit_done, (char *) session);
 }
 
@@ -795,6 +795,8 @@ static void usage(char *myname)
     msg_fatal("usage: %s -cdLNov -s sess -l msglen -m msgs -C count -M myhostname -f from -t to -r rcptcount -R delay -w delay host[:port]", myname);
 }
 
+MAIL_VERSION_STAMP_DECLARE;
+
 /* main - parse JCL and start the machine */
 
 int     main(int argc, char **argv)
@@ -813,6 +815,11 @@ int     main(int argc, char **argv)
     int     aierr;
     const char *protocols = INET_PROTO_NAME_ALL;
     INET_PROTO_INFO *proto_info;
+
+    /*
+     * Fingerprint executables and core dumps.
+     */
+    MAIL_VERSION_STAMP_ALLOCATE;
 
     signal(SIGPIPE, SIG_IGN);
     msg_vstream_init(argv[0], VSTREAM_ERR);

@@ -45,6 +45,8 @@
 	VAR_PROP_EXTENSION, DEF_PROP_EXTENSION, &var_prop_extension, 0, 0,
 	VAR_SMTP_GENERIC_MAPS, DEF_SMTP_GENERIC_MAPS, &var_smtp_generic_maps, 0, 0,
 	VAR_LMTP_TCP_PORT, DEF_LMTP_TCP_PORT, &var_lmtp_tcp_port, 0, 0,
+	VAR_SMTP_PIX_BUG_WORDS, DEF_SMTP_PIX_BUG_WORDS, &var_smtp_pix_bug_words, 0, 0,
+	VAR_SMTP_PIX_BUG_MAPS, DEF_SMTP_PIX_BUG_MAPS, &var_smtp_pix_bug_maps, 0, 0,
 	0,
     };
     static CONFIG_TIME_TABLE smtp_time_table[] = {
@@ -99,6 +101,5 @@
 #endif
 	VAR_SMTP_SENDER_AUTH, DEF_SMTP_SENDER_AUTH, &var_smtp_sender_auth,
 	VAR_SMTP_CNAME_OVERR, DEF_SMTP_CNAME_OVERR, &var_smtp_cname_overr,
-	VAR_SMTP_SASL_ENFORCE, DEF_SMTP_SASL_ENFORCE, &var_smtp_sasl_enforce,
 	0,
     };

@@ -111,6 +111,7 @@
 #include <mail_params.h>
 #include <mail_stream.h>
 #include <mail_flow.h>
+#include <rec_type.h>
 
 /* Milter library. */
 
@@ -233,6 +234,13 @@ int     cleanup_flush(CLEANUP_STATE *state)
 		cleanup_milter_inspect(state, cleanup_milters);
 	}
     }
+
+    /*
+     * Update the preliminary message size and count fields with the actual
+     * values.
+     */
+    if (CLEANUP_OUT_OK(state))
+	cleanup_final(state);
 
     /*
      * If there was an error that requires us to generate a bounce message

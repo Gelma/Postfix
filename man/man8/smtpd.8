@@ -124,6 +124,12 @@ to a remote SMTP client.
 .IP "\fBsmtpd_delay_open_until_valid_rcpt (yes)\fR"
 Postpone the start of an SMTP mail transaction until a valid
 RCPT TO command is received.
+.PP
+Available in Postfix version 2.3 and later:
+.IP "\fBsmtpd_tls_always_issue_session_ids (yes)\fR"
+Force the Postfix SMTP server to issue a TLS session id, even
+when TLS session caching is turned off (smtpd_tls_session_cache_database
+is empty).
 .SH "ADDRESS REWRITING CONTROLS"
 .na
 .nf
@@ -310,6 +316,10 @@ The file with the certificate of the certification authority
 .IP "\fBsmtpd_tls_CAfile (empty)\fR"
 The file with the certificate of the certification authority
 (CA) that issued the Postfix SMTP server certificate.
+.IP "\fBsmtpd_tls_always_issue_session_ids (yes)\fR"
+Force the Postfix SMTP server to issue a TLS session id, even
+when TLS session caching is turned off (smtpd_tls_session_cache_database
+is empty).
 .IP "\fBsmtpd_tls_ask_ccert (no)\fR"
 Ask a remote SMTP client for a client certificate.
 .IP "\fBsmtpd_tls_auth_only (no)\fR"
@@ -368,15 +378,15 @@ instead of using the STARTTLS command.
 The number of pseudo-random bytes that an \fBsmtp\fR(8) or \fBsmtpd\fR(8)
 process requests from the \fBtlsmgr\fR(8) server in order to seed its
 internal pseudo random number generator (PRNG).
-.IP "\fBtls_high_cipherlist (!EXPORT:!LOW:!MEDIUM:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_high_cipherlist (ALL:!EXPORT:!LOW:!MEDIUM:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "HIGH" grade ciphers.
-.IP "\fBtls_medium_cipherlist (!EXPORT:!LOW:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_medium_cipherlist (ALL:!EXPORT:!LOW:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "MEDIUM" or higher grade ciphers.
-.IP "\fBtls_low_cipherlist (!EXPORT:ALL:+RC4:@STRENGTH)\fR"
+.IP "\fBtls_low_cipherlist (ALL:!EXPORT:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "LOW" or higher grade ciphers.
 .IP "\fBtls_export_cipherlist (ALL:+RC4:@STRENGTH)\fR"
 The OpenSSL cipherlist for "EXPORT" or higher grade ciphers.
-.IP "\fBtls_null_cipherlist (!aNULL:eNULL+kRSA)\fR"
+.IP "\fBtls_null_cipherlist (eNULL:!aNULL)\fR"
 The OpenSSL cipherlist for "NULL" grade ciphers that provide
 authentication without encryption.
 .SH "OBSOLETE STARTTLS CONTROLS"
@@ -562,7 +572,7 @@ before it is flushed upon receipt of EHLO, RSET, or end of DATA.
 .PP
 Available in Postfix version 2.3 and later:
 .IP "\fBsmtpd_peername_lookup (yes)\fR"
-Attempt to look up the Postfix SMTP client hostname, and verify that
+Attempt to look up the remote SMTP client hostname, and verify that
 the name matches the client IP address.
 .PP
 The per SMTP client connection count and request rate limits are
@@ -819,11 +829,11 @@ the SMTP greeting banner, and in bounced mail.
 The UNIX system account that owns the Postfix queue and most Postfix
 daemon processes.
 .IP "\fBmax_idle (100s)\fR"
-The maximum amount of time that an idle Postfix daemon process
-waits for the next service request before exiting.
+The maximum amount of time that an idle Postfix daemon process waits
+for an incoming connection before terminating voluntarily.
 .IP "\fBmax_use (100)\fR"
-The maximal number of connection requests before a Postfix daemon
-process terminates.
+The maximal number of incoming connections that a Postfix daemon
+process will service before terminating voluntarily.
 .IP "\fBmyhostname (see 'postconf -d' output)\fR"
 The internet hostname of this mail system.
 .IP "\fBmynetworks (see 'postconf -d' output)\fR"

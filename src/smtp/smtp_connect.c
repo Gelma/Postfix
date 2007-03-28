@@ -379,7 +379,10 @@ static void smtp_cleanup_session(SMTP_STATE *state)
     bad_session = THIS_SESSION_IS_BAD;		/* smtp_quit() may fail */
     if (THIS_SESSION_IS_EXPIRED)
 	smtp_quit(state);			/* also disables caching */
-    if (THIS_SESSION_IS_CACHED) {
+    if (THIS_SESSION_IS_CACHED
+	/* Redundant tests for safety... */
+	&& vstream_ferror(session->stream) == 0
+	&& vstream_feof(session->stream) == 0) {
 	smtp_save_session(state);
     } else {
 	smtp_session_free(session);
@@ -663,9 +666,9 @@ static void smtp_connect_remote(SMTP_STATE *state, const char *nexthop,
      * primary destination to be a list (it could be just separators).
      */
     sites = argv_alloc(1);
-    argv_add(sites, request->nexthop, (char *) 0);
+    argv_add(sites, nexthop, (char *) 0);
     if (sites->argc == 0)
-	msg_panic("null destination: \"%s\"", request->nexthop);
+	msg_panic("null destination: \"%s\"", nexthop);
     non_fallback_sites = sites->argc;
     if ((state->misc_flags & SMTP_MISC_FLAG_USE_LMTP) == 0)
 	argv_split_append(sites, var_fallback_relay, ", \t\r\n");

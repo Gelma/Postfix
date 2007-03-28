@@ -108,6 +108,12 @@
 /* .IP "\fBsmtpd_delay_open_until_valid_rcpt (yes)\fR"
 /*	Postpone the start of an SMTP mail transaction until a valid
 /*	RCPT TO command is received.
+/* .PP
+/*	Available in Postfix version 2.3 and later:
+/* .IP "\fBsmtpd_tls_always_issue_session_ids (yes)\fR"
+/*	Force the Postfix SMTP server to issue a TLS session id, even
+/*	when TLS session caching is turned off (smtpd_tls_session_cache_database
+/*	is empty).
 /* ADDRESS REWRITING CONTROLS
 /* .ad
 /* .fi
@@ -278,6 +284,10 @@
 /* .IP "\fBsmtpd_tls_CAfile (empty)\fR"
 /*	The file with the certificate of the certification authority
 /*	(CA) that issued the Postfix SMTP server certificate.
+/* .IP "\fBsmtpd_tls_always_issue_session_ids (yes)\fR"
+/*	Force the Postfix SMTP server to issue a TLS session id, even
+/*	when TLS session caching is turned off (smtpd_tls_session_cache_database
+/*	is empty).
 /* .IP "\fBsmtpd_tls_ask_ccert (no)\fR"
 /*	Ask a remote SMTP client for a client certificate.
 /* .IP "\fBsmtpd_tls_auth_only (no)\fR"
@@ -336,15 +346,15 @@
 /*	The number of pseudo-random bytes that an \fBsmtp\fR(8) or \fBsmtpd\fR(8)
 /*	process requests from the \fBtlsmgr\fR(8) server in order to seed its
 /*	internal pseudo random number generator (PRNG).
-/* .IP "\fBtls_high_cipherlist (!EXPORT:!LOW:!MEDIUM:ALL:+RC4:@STRENGTH)\fR"
+/* .IP "\fBtls_high_cipherlist (ALL:!EXPORT:!LOW:!MEDIUM:+RC4:@STRENGTH)\fR"
 /*	The OpenSSL cipherlist for "HIGH" grade ciphers.
-/* .IP "\fBtls_medium_cipherlist (!EXPORT:!LOW:ALL:+RC4:@STRENGTH)\fR"
+/* .IP "\fBtls_medium_cipherlist (ALL:!EXPORT:!LOW:+RC4:@STRENGTH)\fR"
 /*	The OpenSSL cipherlist for "MEDIUM" or higher grade ciphers.
-/* .IP "\fBtls_low_cipherlist (!EXPORT:ALL:+RC4:@STRENGTH)\fR"
+/* .IP "\fBtls_low_cipherlist (ALL:!EXPORT:+RC4:@STRENGTH)\fR"
 /*	The OpenSSL cipherlist for "LOW" or higher grade ciphers.
 /* .IP "\fBtls_export_cipherlist (ALL:+RC4:@STRENGTH)\fR"
 /*	The OpenSSL cipherlist for "EXPORT" or higher grade ciphers.
-/* .IP "\fBtls_null_cipherlist (!aNULL:eNULL+kRSA)\fR"
+/* .IP "\fBtls_null_cipherlist (eNULL:!aNULL)\fR"
 /*	The OpenSSL cipherlist for "NULL" grade ciphers that provide
 /*	authentication without encryption.
 /* OBSOLETE STARTTLS CONTROLS
@@ -520,7 +530,7 @@
 /* .PP
 /*	Available in Postfix version 2.3 and later:
 /* .IP "\fBsmtpd_peername_lookup (yes)\fR"
-/*	Attempt to look up the Postfix SMTP client hostname, and verify that
+/*	Attempt to look up the remote SMTP client hostname, and verify that
 /*	the name matches the client IP address.
 /* .PP
 /*	The per SMTP client connection count and request rate limits are
@@ -765,11 +775,11 @@
 /*	The UNIX system account that owns the Postfix queue and most Postfix
 /*	daemon processes.
 /* .IP "\fBmax_idle (100s)\fR"
-/*	The maximum amount of time that an idle Postfix daemon process
-/*	waits for the next service request before exiting.
+/*	The maximum amount of time that an idle Postfix daemon process waits
+/*	for an incoming connection before terminating voluntarily.
 /* .IP "\fBmax_use (100)\fR"
-/*	The maximal number of connection requests before a Postfix daemon
-/*	process terminates.
+/*	The maximal number of incoming connections that a Postfix daemon
+/*	process will service before terminating voluntarily.
 /* .IP "\fBmyhostname (see 'postconf -d' output)\fR"
 /*	The internet hostname of this mail system.
 /* .IP "\fBmynetworks (see 'postconf -d' output)\fR"
@@ -1070,6 +1080,7 @@ char   *var_smtpd_tls_mand_proto;
 bool    var_smtpd_tls_received_header;
 bool    var_smtpd_tls_req_ccert;
 int     var_smtpd_tls_scache_timeout;
+bool    var_smtpd_tls_set_sessid;
 int     var_tls_daemon_rand_bytes;
 
 #endif
@@ -1520,7 +1531,7 @@ static void helo_reset(SMTPD_STATE *state)
     if (state->helo_name) {
 	myfree(state->helo_name);
 	state->helo_name = 0;
-	if (smtpd_milters)
+	if (SMTPD_STAND_ALONE(state) == 0 && smtpd_milters != 0)
 	    milter_abort(smtpd_milters);
     }
 }
@@ -1689,12 +1700,19 @@ static int mail_open_stream(SMTPD_STATE *state)
 	    rec_fprintf(state->cleanup, REC_TYPE_ATTR, "%s=%s",
 			MAIL_ATTR_ACT_CLIENT_NAME, state->name);
 	    rec_fprintf(state->cleanup, REC_TYPE_ATTR, "%s=%s",
+		    MAIL_ATTR_ACT_REVERSE_CLIENT_NAME, state->reverse_name);
+	    rec_fprintf(state->cleanup, REC_TYPE_ATTR, "%s=%s",
 			MAIL_ATTR_ACT_CLIENT_ADDR, state->addr);
 	    if (state->helo_name)
 		rec_fprintf(state->cleanup, REC_TYPE_ATTR, "%s=%s",
 			    MAIL_ATTR_ACT_HELO_NAME, state->helo_name);
 	    rec_fprintf(state->cleanup, REC_TYPE_ATTR, "%s=%u",
 			MAIL_ATTR_ACT_CLIENT_AF, state->addr_family);
+
+	    /*
+	     * Don't send client certificate down the pipeline unless it is
+	     * a) verified or b) just a fingerprint.
+	     */
 	}
 	if (state->verp_delims)
 	    rec_fputs(state->cleanup, REC_TYPE_VERP, state->verp_delims);
@@ -2235,10 +2253,11 @@ static int rcpt_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
 		smtpd_chat_reply(state, "501 5.7.1 DSN support is disabled");
 		return (-1);
 	    }
+	    vstring_strcpy(state->dsn_orcpt_buf, arg + 6);
 	    if (dsn_orcpt_addr
-		|| (coded_addr = split_at(arg + 6, ';')) == 0
+	     || (coded_addr = split_at(STR(state->dsn_orcpt_buf), ';')) == 0
 		|| xtext_unquote(state->dsn_buf, coded_addr) == 0
-		|| *(dsn_orcpt_type = arg + 6) == 0) {
+		|| *(dsn_orcpt_type = STR(state->dsn_orcpt_buf)) == 0) {
 		state->error_mask |= MAIL_ERROR_PROTOCOL;
 		smtpd_chat_reply(state,
 			     "501 5.5.4 Error: Bad ORCPT parameter syntax");
@@ -2629,11 +2648,15 @@ static int data_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *unused_argv)
 	    && (state->proxy == 0 ? (++start, --len) == 0 : len == 1))
 	    break;
 	if (state->err == CLEANUP_STAT_OK) {
-	    state->act_size += len + 2;
-	    if (var_message_limit > 0 && state->act_size > var_message_limit)
+	    if (var_message_limit > 0 && var_message_limit - state->act_size < len + 2) {
 		state->err = CLEANUP_STAT_SIZE;
-	    else if (out_record(out_stream, curr_rec_type, start, len) < 0)
-		state->err = out_error;
+		msg_warn("%s: queue file size limit exceeded",
+			 state->queue_id ? state->queue_id : "NOQUEUE");
+	    } else {
+		state->act_size += len + 2;
+		if (out_record(out_stream, curr_rec_type, start, len) < 0)
+		    state->err = out_error;
+	    }
 	}
     }
     state->where = SMTPD_AFTER_DOT;
@@ -2976,7 +2999,7 @@ static int etrn_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
 	smtpd_chat_reply(state, "%s", err);
 	return (-1);
     }
-    switch (flush_send(argv[1].strval)) {
+    switch (flush_send_site(argv[1].strval)) {
     case FLUSH_STAT_OK:
 	smtpd_chat_reply(state, "250 Queuing started");
 	return (0);
@@ -3515,6 +3538,7 @@ static void chat_reset(SMTPD_STATE *state, int threshold)
 static void smtpd_start_tls(SMTPD_STATE *state)
 {
     int     rate;
+    tls_server_start_props props;
 
     /*
      * Wrapper mode uses a dedicated port and always requires TLS.
@@ -3525,12 +3549,24 @@ static void smtpd_start_tls(SMTPD_STATE *state)
      * perform SMTP transactions when the client does not use the STARTTLS
      * command. For this reason, Postfix does not require client certificate
      * verification unless TLS is required.
+     * 
+     * XXX We append the service name to the session cache ID, so that there
+     * won't be collisions between multiple master.cf entries that use
+     * different roots of trust. This does not eliminate collisions between
+     * multiple inetd.conf entries that use different roots of trust. For a
+     * universal solution we would have to append the local IP address + port
+     * number information.
      */
-    state->tls_context =
-	tls_server_start(smtpd_tls_ctx, state->client,
-			 var_smtpd_starttls_tmout, var_smtpd_tls_loglevel,
-			 state->name, state->addr,
-		       (var_smtpd_tls_req_ccert && state->tls_enforce_tls));
+    memset((char *) &props, 0, sizeof(props));
+    props.ctx = smtpd_tls_ctx;
+    props.stream = state->client;
+    props.log_level = var_smtpd_tls_loglevel;
+    props.timeout = var_smtpd_starttls_tmout;
+    props.requirecert = (var_smtpd_tls_req_ccert && state->tls_enforce_tls);
+    props.serverid = state->service;
+    props.peername = state->name;
+    props.peeraddr = state->addr;
+    state->tls_context = tls_server_start(&props);
 
     /*
      * XXX The client event count/rate control must be consistent in its use
@@ -3883,7 +3919,7 @@ static void smtpd_proto(SMTPD_STATE *state)
 	    if (smtpd_milters != 0 && SMTPD_STAND_ALONE(state) == 0) {
 		milter_macro_callback(smtpd_milters, smtpd_milter_eval,
 				      (void *) state);
-		if ((err = milter_conn_event(smtpd_milters, state->reverse_name,
+		if ((err = milter_conn_event(smtpd_milters, state->name,
 					     state->addr, XXX_NO_PORT,
 					     state->addr_family)) != 0)
 		    err = check_milter_reply(state, err);
@@ -3950,6 +3986,16 @@ static void smtpd_proto(SMTPD_STATE *state)
 		    smtpd_chat_reply(state, "221 2.7.0 Error: I can break rules, too. Goodbye.");
 		    break;
 		}
+	    }
+	    /* XXX We use the real client for connect access control. */
+	    if (state->access_denied && cmdp->action != quit_cmd) {
+		smtpd_chat_reply(state, "503 5.7.0 Error: access denied for %s",
+				 state->namaddr);	/* RFC 2821 Sec 3.1 */
+		state->error_count++;
+		continue;
+	    }
+	    /* state->access_denied == 0 || cmdp->action == quit_cmd */
+	    if (cmdp->name == 0) {
 		if (smtpd_milters != 0
 		    && SMTPD_STAND_ALONE(state) == 0
 		    && (err = milter_unknown_event(smtpd_milters,
@@ -3959,13 +4005,6 @@ static void smtpd_proto(SMTPD_STATE *state)
 		} else
 		    smtpd_chat_reply(state, "502 5.5.2 Error: command not recognized");
 		state->error_mask |= MAIL_ERROR_PROTOCOL;
-		state->error_count++;
-		continue;
-	    }
-	    /* XXX We use the real client for connect access control. */
-	    if (state->access_denied && cmdp->action != quit_cmd) {
-		smtpd_chat_reply(state, "503 5.7.0 Error: access denied for %s",
-				 state->namaddr);	/* RFC 2821 Sec 3.1 */
 		state->error_count++;
 		continue;
 	    }
@@ -4218,6 +4257,7 @@ static void pre_jail_init(char *unused_name, char **unused_argv)
 	    props.verifydepth = var_smtpd_tls_ccert_vd;
 	    props.cache_type = TLS_MGR_SCACHE_SMTPD;
 	    props.scache_timeout = var_smtpd_tls_scache_timeout;
+	    props.set_sessid = var_smtpd_tls_set_sessid;
 	    props.cert_file = var_smtpd_tls_cert_file;
 	    props.key_file = var_smtpd_tls_key_file;
 	    props.dcert_file = var_smtpd_tls_dcert_file;
@@ -4250,14 +4290,14 @@ static void pre_jail_init(char *unused_name, char **unused_argv)
 		msg_warn("Can't require client certs unless TLS is required");
 
 	    props.cipherlist =
-	    	tls_cipher_list(enforce_tls ?
-				    tls_cipher_level(var_smtpd_tls_mand_ciph) :
-				    TLS_CIPHER_EXPORT,
+		tls_cipher_list(enforce_tls ?
+				tls_cipher_level(var_smtpd_tls_mand_ciph) :
+				TLS_CIPHER_EXPORT,
 				var_smtpd_tls_excl_ciph,
 				havecert ? "" : "aRSA aDSS",
 				wantcert ? "aNULL" : "",
-				enforce_tls ?  var_smtpd_tls_mand_excl :
-				    TLS_END_EXCLUDE,
+				enforce_tls ? var_smtpd_tls_mand_excl :
+				TLS_END_EXCLUDE,
 				TLS_END_EXCLUDE);
 
 	    if (props.cipherlist == 0) {
@@ -4268,9 +4308,11 @@ static void pre_jail_init(char *unused_name, char **unused_argv)
 				    var_smtpd_tls_excl_ciph,
 				    havecert ? "" : "aRSA aDSS",
 				    wantcert ? "aNULL" : "",
-				    enforce_tls ?  var_smtpd_tls_mand_excl :
-					TLS_END_EXCLUDE,
+				    enforce_tls ? var_smtpd_tls_mand_excl :
+				    TLS_END_EXCLUDE,
 				    TLS_END_EXCLUDE);
+		if (props.cipherlist == 0)
+		    msg_panic("NULL export cipherlist");
 	    }
 	    if (havecert || oknocert)
 		smtpd_tls_ctx = tls_server_init(&props);
@@ -4359,6 +4401,8 @@ static void post_jail_init(char *unused_name, char **unused_argv)
 	anvil_clnt = anvil_clnt_create();
 }
 
+MAIL_VERSION_STAMP_DECLARE;
+
 /* main - the main program */
 
 int     main(int argc, char **argv)
@@ -4439,6 +4483,7 @@ int     main(int argc, char **argv)
 	VAR_SMTPD_TLS_ACERT, DEF_SMTPD_TLS_ACERT, &var_smtpd_tls_ask_ccert,
 	VAR_SMTPD_TLS_RCERT, DEF_SMTPD_TLS_RCERT, &var_smtpd_tls_req_ccert,
 	VAR_SMTPD_TLS_RECHEAD, DEF_SMTPD_TLS_RECHEAD, &var_smtpd_tls_received_header,
+	VAR_SMTPD_TLS_SET_SESSID, DEF_SMTPD_TLS_SET_SESSID, &var_smtpd_tls_set_sessid,
 #endif
 	VAR_SMTPD_PEERNAME_LOOKUP, DEF_SMTPD_PEERNAME_LOOKUP, &var_smtpd_peername_lookup,
 	VAR_SMTPD_DELAY_OPEN, DEF_SMTPD_DELAY_OPEN, &var_smtpd_delay_open,
@@ -4528,6 +4573,11 @@ int     main(int argc, char **argv)
 	VAR_DEF_RBL_REPLY, DEF_DEF_RBL_REPLY, &var_def_rbl_reply, 1, 0,
 	0,
     };
+
+    /*
+     * Fingerprint executables and core dumps.
+     */
+    MAIL_VERSION_STAMP_ALLOCATE;
 
     /*
      * Pass control to the single-threaded service skeleton.

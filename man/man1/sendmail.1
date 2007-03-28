@@ -101,7 +101,8 @@ With all Postfix versions, you can specify a directory pathname
 with the MAIL_CONFIG environment variable to override the
 location of configuration files.
 .IP "\fB-F \fIfull_name\fR
-Set the sender full name. This is used only with messages that
+Set the sender full name. This overrides the NAME environment
+variable, and is used only with messages that
 have no \fBFrom:\fR message header.
 .IP "\fB-f \fIsender\fR"
 Set the envelope sender address. This is the address where
@@ -173,6 +174,11 @@ poor delivery performance of all other mail.
 .IP "\fB-q\fIinterval\fR (ignored)"
 The interval between queue runs. Use the \fBqueue_run_delay\fR
 configuration parameter instead.
+.IP \fB-qI\fIqueueid\fR
+Schedule immediate delivery of mail with the specified queue
+ID.  This option is implemented by executing the
+\fBpostqueue\fR(1) command, and is available with Postfix
+version 2.4 and later.
 .IP \fB-qR\fIsite\fR
 Schedule immediate delivery of all mail that is queued for the named
 \fIsite\fR. This option accepts only \fIsite\fR names that are
@@ -224,7 +230,7 @@ Log mailer traffic. Use the \fBdebug_peer_list\fR and
 .ad
 .fi
 By design, this program is not set-user (or group) id. However,
-it must handle data from untrusted users or untrusted machines.
+it must handle data from untrusted, possibly remote, users.
 Thus, the usual precautions need to be taken against malicious
 inputs.
 .SH DIAGNOSTICS
@@ -239,11 +245,15 @@ stream.
 .fi
 .IP \fBMAIL_CONFIG\fR
 Directory with Postfix configuration files.
-.IP \fBMAIL_VERBOSE\fR
+.IP "\fBMAIL_VERBOSE\fR (value does not matter)"
 Enable verbose logging for debugging purposes.
-.IP \fBMAIL_DEBUG\fR
+.IP "\fBMAIL_DEBUG\fR (value does not matter)"
 Enable debugging with an external command, as specified with the
 \fBdebugger_command\fR configuration parameter.
+.IP \fBNAME\fR
+The sender full name. This is used only with messages that
+have no \fBFrom:\fR message header. See also the \fB-F\fR
+option above.
 .SH "CONFIGURATION PARAMETERS"
 .na
 .nf
@@ -298,7 +308,7 @@ The delay between attempts to fork() a child process.
 .IP "\fBhopcount_limit (50)\fR"
 The maximal number of Received:  message headers that is allowed
 in the primary message headers.
-.IP "\fBqueue_run_delay (1000s)\fR"
+.IP "\fBqueue_run_delay (version dependent)\fR"
 The time between deferred queue scans by the queue manager.
 .SH "FAST FLUSH CONTROLS"
 .na
@@ -364,9 +374,6 @@ The syslog facility of Postfix logging.
 .IP "\fBsyslog_name (postfix)\fR"
 The mail system name that is prepended to the process name in syslog
 records, so that "smtpd" becomes, for example, "postfix/smtpd".
-.IP "\fBtrigger_timeout (10s)\fR"
-The time limit for sending a trigger to a Postfix daemon (for
-example, the \fBpickup\fR(8) or \fBqmgr\fR(8) daemon).
 .SH "FILES"
 .na
 .nf

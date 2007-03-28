@@ -67,10 +67,15 @@ static void cleanup_bounce_append(CLEANUP_STATE *state, RECIPIENT *rcpt,
 {
     MSG_STATS stats;
 
+    /*
+     * Don't log a spurious warning (for example, when soft_bounce is turned
+     * on). bounce_append() already logs a record when the logfile can't be
+     * updated. Set the write error flag, so that a maildrop queue file won't
+     * be destroyed.
+     */
     if (bounce_append(BOUNCE_FLAG_CLEAN, state->queue_id,
 		      CLEANUP_MSG_STATS(&stats, state),
 		      rcpt, "none", dsn) != 0) {
-	msg_warn("%s: bounce logfile update error", state->queue_id);
 	state->errs |= CLEANUP_STAT_WRITE;
     }
 }
@@ -125,12 +130,12 @@ int     cleanup_bounce(CLEANUP_STATE *state)
      * expand the recipient count by virtual_alias_expansion_limit (default:
      * 1000) times.
      * 
-     * After a queue file size error, purge any unwritten data (so that
+     * After a queue file write error, purge any unwritten data (so that
      * vstream_fseek() won't fail while trying to flush it) and reset the
      * stream error flags to avoid false alarms.
      */
-    if (state->errs & CLEANUP_STAT_SIZE) {
-	(void) vstream_fpurge(state->dst);
+    if (vstream_ferror(state->dst) || vstream_fflush(state->dst)) {
+	(void) vstream_fpurge(state->dst, VSTREAM_PURGE_BOTH);
 	vstream_clearerr(state->dst);
     }
     if (vstream_fseek(state->dst, 0L, SEEK_SET) < 0)

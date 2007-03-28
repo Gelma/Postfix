@@ -19,6 +19,11 @@
 /*	UNIX-domain sockets.
 /*	IPv4 and IPv6 are the default.
 /*	This program is the complement of the \fBqmqp-source\fR(1) program.
+/*
+/*	Note: this is an unsupported test program. No attempt is made
+/*	to maintain compatibility between successive versions.
+/*
+/*	Arguments:
 /* .IP \fB-4\fR
 /*	Support IPv4 only. This option has no effect when
 /*	Postfix is built without IPv6 support.
@@ -74,6 +79,7 @@
 /* Global library. */
 
 #include <qmqp_proto.h>
+#include <mail_version.h>
 
 /* Application-specific. */
 
@@ -234,6 +240,8 @@ static void usage(char *myname)
     msg_fatal("usage: %s [-cv] [-x time] [host]:port backlog", myname);
 }
 
+MAIL_VERSION_STAMP_DECLARE;
+
 int     main(int argc, char **argv)
 {
     int     sock;
@@ -242,6 +250,11 @@ int     main(int argc, char **argv)
     int     ttl;
     const char *protocols = INET_PROTO_NAME_ALL;
     INET_PROTO_INFO *proto_info;
+
+    /*
+     * Fingerprint executables and core dumps.
+     */
+    MAIL_VERSION_STAMP_ALLOCATE;
 
     /*
      * Fix 20051207.
