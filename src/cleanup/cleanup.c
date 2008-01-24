@@ -159,6 +159,11 @@
 /* .IP "\fBmilter_end_of_data_macros (see postconf -n output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the message end-of-data.
+/* .PP
+/*	Available in Postfix version 2.5 and later:
+/* .IP "\fBmilter_end_of_header_macros (see postconf -n output)\fR"
+/*	The macros that are sent to Milter (mail filter) applications
+/*	after the end of the message header.
 /* MIME PROCESSING CONTROLS
 /* .ad
 /* .fi
@@ -179,6 +184,12 @@
 /* .IP "\fBstrict_mime_encoding_domain (no)\fR"
 /*	Reject mail with invalid Content-Transfer-Encoding: information
 /*	for the message/* or multipart/* MIME content types.
+/* .PP
+/*	Available in Postfix version 2.5 and later:
+/* .IP "\fBdetect_8bit_encoding_header (yes)\fR"
+/*	Automatically detect 8BITMIME body content by looking at
+/*	Content-Transfer-Encoding: message headers; historically, this
+/*	behavior was hard-coded to be "always on".
 /* AUTOMATIC BCC RECIPIENT CONTROLS
 /* .ad
 /* .fi

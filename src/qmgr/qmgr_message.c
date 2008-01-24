@@ -85,7 +85,7 @@
 /*	P.O. Box 704
 /*	Yorktown Heights, NY 10598, USA
 /*
-/*	Scheduler enhancements:
+/*	Preemptive scheduler enhancements:
 /*	Patrik Rak
 /*	Modra 6
 /*	155 00, Prague, Czech Republic
@@ -190,6 +190,7 @@ static QMGR_MESSAGE *qmgr_message_create(const char *queue_name,
     message->verp_delims = 0;
     message->client_name = 0;
     message->client_addr = 0;
+    message->client_port = 0;
     message->client_proto = 0;
     message->client_helo = 0;
     message->sasl_method = 0;
@@ -675,6 +676,10 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 		if (message->client_addr != 0)
 		    myfree(message->client_addr);
 		message->client_addr = mystrdup(value);
+	    } else if (strcmp(name, MAIL_ATTR_LOG_CLIENT_PORT) == 0) {
+		if (message->client_port != 0)
+		    myfree(message->client_port);
+		message->client_port = mystrdup(value);
 	    } else if (strcmp(name, MAIL_ATTR_LOG_PROTO_NAME) == 0) {
 		if (message->client_proto != 0)
 		    myfree(message->client_proto);
@@ -783,6 +788,8 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 	message->client_name = mystrdup("");
     if (message->client_addr == 0)
 	message->client_addr = mystrdup("");
+    if (message->client_port == 0)
+	message->client_port = mystrdup("");
     if (message->client_proto == 0)
 	message->client_proto = mystrdup("");
     if (message->client_helo == 0)
@@ -1063,22 +1070,6 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	}
 
 	/*
-	 * Bounce recipient addresses that start with `-'. External commands
-	 * may misinterpret such addresses as command-line options.
-	 * 
-	 * In theory I could say people should always carefully set up their
-	 * master.cf pipe mailer entries with `--' before the first
-	 * non-option argument, but mistakes will happen regardless.
-	 * 
-	 * Therefore the protection is put in place here, in the queue manager,
-	 * where it cannot be bypassed.
-	 */
-	if (var_allow_min_user == 0 && recipient->address[0] == '-') {
-	    QMGR_REDIRECT(&reply, MAIL_SERVICE_ERROR,
-			  "5.1.3 bad address syntax");
-	}
-
-	/*
 	 * Discard mail to the local double bounce address here, so this
 	 * system can run without a local delivery agent. They'd still have
 	 * to configure something for mail directed to the local postmaster,
@@ -1100,8 +1091,11 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 			"undeliverable postmaster notification discarded"));
 		if (status == 0) {
 		    deliver_completed(message->fp, recipient->offset);
+#if 0
+		    /* It's the default verification probe sender address. */
 		    msg_warn("%s: undeliverable postmaster notification discarded",
 			     message->queue_id);
+#endif
 		} else
 		    message->flags |= status;
 		continue;
@@ -1371,6 +1365,8 @@ void    qmgr_message_free(QMGR_MESSAGE *message)
 	myfree(message->client_name);
     if (message->client_addr)
 	myfree(message->client_addr);
+    if (message->client_port)
+	myfree(message->client_port);
     if (message->client_proto)
 	myfree(message->client_proto);
     if (message->client_helo)

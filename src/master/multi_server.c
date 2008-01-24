@@ -12,9 +12,8 @@
 /*	void	(*service)(VSTREAM *stream, char *service_name, char **argv);
 /*	int	key;
 /*
-/*	void	multi_server_disconnect(stream, argv)
+/*	void	multi_server_disconnect(stream)
 /*	VSTREAM *stream;
-/*	char	**argv;
 /*
 /*	void	multi_server_drain()
 /* DESCRIPTION
@@ -97,7 +96,7 @@
 /*	Function to be executed prior to accepting a new connection.
 /* .sp
 /*	Only the last instance of this parameter type is remembered.
-/* .IP "MAIL_SERVER_PRE_DISCONN (VSTREAM *, void *(char *service_name, char **argv))"
+/* .IP "MAIL_SERVER_PRE_DISCONN (VSTREAM *, char *service_name, char **argv)"
 /*	A pointer to a function that is called
 /*	by the multi_server_disconnect() function (see below).
 /* .sp
@@ -336,14 +335,17 @@ static void multi_server_wakeup(int fd)
     char   *tmp;
 
 #if defined(F_DUPFD) && (EVENTS_STYLE != EVENTS_STYLE_SELECT)
+#ifndef THRESHOLD_FD_WORKAROUND
+#define THRESHOLD_FD_WORKAROUND 128
+#endif
     int     new_fd;
 
     /*
      * Leave some handles < FD_SETSIZE for DBMS libraries, in the unlikely
      * case of a multi-server with a thousand clients.
      */
-    if (fd < FD_SETSIZE / 8) {
-	if ((new_fd = fcntl(fd, F_DUPFD, FD_SETSIZE / 8)) < 0)
+    if (fd < THRESHOLD_FD_WORKAROUND) {
+	if ((new_fd = fcntl(fd, F_DUPFD, THRESHOLD_FD_WORKAROUND)) < 0)
 	    msg_fatal("fcntl F_DUPFD: %m");
 	(void) close(fd);
 	fd = new_fd;

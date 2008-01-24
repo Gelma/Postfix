@@ -74,6 +74,7 @@ server sends in a delegated SMTPD access policy request: </p>
 
 <blockquote>
 <pre>
+<b>Postfix version 2.1 and later:</b>
 request=smtpd_access_policy
 protocol_state=RCPT
 protocol_name=SMTP
@@ -99,6 +100,8 @@ encryption_protocol=TLSv1/SSLv3
 encryption_cipher=DHE-RSA-AES256-SHA
 encryption_keysize=256
 etrn_domain=
+<b>Postfix version 2.5 and later:</b>
+stress=
 [empty line]
 </pre>
 </blockquote>
@@ -177,6 +180,9 @@ etrn_domain=
     context of the ETRN command, and specifies the ETRN command
     parameter. </p>
 
+    <li> <p> The "stress" attribute is either empty or "yes".  See
+    the STRESS_README document for further information. </p>
+
 </ul>
 
 <p> The following is specific to SMTPD delegated policy requests:
@@ -240,7 +246,7 @@ daemon, you would use something like this: </p>
 <blockquote>
 <pre>
  1 /etc/postfix/master.cf:
- 2     policy  unix  -       n       n       -       -       spawn
+ 2     policy  unix  -       n       n       -       0       spawn
  3       user=nobody argv=/some/where/policy-server
  4 
  5 /etc/postfix/main.cf:
@@ -265,6 +271,10 @@ main.cf with an explicit "policy_time_limit" setting.  The name of
 the parameter is the name of the master.cf entry ("policy")
 concatenated with the "_time_limit" suffix.  </p>
 
+<li> <p> Line 2: specify a "0" process limit instead of the default
+"-", to avoid "connection refused" and other problems when the smtpd
+process limit exceeds the default_process_limit setting. </p>
+
 <li> <p> Lines 8, 9: always specify "check_policy_service" AFTER
 "reject_unauth_destination" or else your system could become an
 open relay. </p>
@@ -277,7 +287,7 @@ TCP sockets instead: </p>
 <blockquote>
 <pre>
  1 /etc/postfix/master.cf:
- 2     127.0.0.1:9998  inet  n       n       n       -       -       spawn
+ 2     127.0.0.1:9998  inet  n       n       n       -       0       spawn
  3       user=nobody argv=/some/where/policy-server
  4 
  5 /etc/postfix/main.cf:
@@ -369,7 +379,7 @@ processes only: </p>
 <blockquote>
 <pre>
 1 /etc/postfix/master.cf:
-2     policy  unix  -       n       n       -       -       spawn
+2     policy  unix  -       n       n       -       0       spawn
 3       user=nobody argv=/usr/bin/perl /usr/libexec/postfix/greylist.pl
 4 
 5 /etc/postfix/main.cf:
@@ -392,6 +402,10 @@ main.cf with an explicit "policy_time_limit" setting.  The name of
 the parameter is the name of the master.cf entry ("policy")
 concatenated with the "_time_limit" suffix.  </p>
 
+<li> <p> Line 2: specify a "0" process limit instead of the default
+"-", to avoid "connection refused" and other problems when the smtpd
+process limit exceeds the default_process_limit setting. </p>
+
 </ul>
 
 <p> On Solaris you must use inet: style sockets instead of unix:
@@ -401,7 +415,7 @@ client/server configuration</a>" section above.  </p>
 <blockquote>
 <pre>
 1 /etc/postfix/master.cf:
-2     127.0.0.1:9998  inet  n       n       n       -       -       spawn
+2     127.0.0.1:9998  inet  n       n       n       -       0       spawn
 3       user=nobody argv=/usr/bin/perl /usr/libexec/postfix/greylist.pl
 4 
 5 /etc/postfix/main.cf:

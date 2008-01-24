@@ -41,7 +41,7 @@
 /* .IP addr
 /*	Printable representation of the client address.
 /* .IP namaddr
-/*	String of the form: "name[addr]".
+/*	String of the form: "name[addr]:port".
 /* .IP rfc_addr
 /*      String of the form "ipv4addr" or "ipv6:ipv6addr" for use
 /*	in Received: message headers.
@@ -162,7 +162,7 @@ void    smtpd_peer_init(SMTPD_STATE *state)
     /*
      * If peer went away, give up.
      */
-    if (errno == ECONNRESET || errno == ECONNABORTED) {
+    if (errno != 0 && errno != ENOTSOCK) {
 	state->name = mystrdup(CLIENT_NAME_UNKNOWN);
 	state->reverse_name = mystrdup(CLIENT_NAME_UNKNOWN);
 	state->addr = mystrdup(CLIENT_ADDR_UNKNOWN);
@@ -170,17 +170,39 @@ void    smtpd_peer_init(SMTPD_STATE *state)
 	state->addr_family = AF_UNSPEC;
 	state->name_status = SMTPD_PEER_CODE_PERM;
 	state->reverse_name_status = SMTPD_PEER_CODE_PERM;
+	state->port = mystrdup(CLIENT_PORT_UNKNOWN);
     }
 
     /*
      * Convert the client address to printable address and hostname.
+     * 
+     * XXX If we're given an IPv6 (or IPv4) connection from, e.g., inetd, while
+     * Postfix IPv6 (or IPv4) support is turned off, don't (skip to the final
+     * else clause, pretend the origin is localhost[127.0.0.1], and become an
+     * open relay).
      */
     else if (errno == 0
-	     && strchr((char *) proto_info->sa_family_list, sa->sa_family)) {
+	     && (sa->sa_family == AF_INET
+#ifdef AF_INET6
+		 || sa->sa_family == AF_INET6
+#endif
+		 )) {
 	MAI_HOSTNAME_STR client_name;
 	MAI_HOSTADDR_STR client_addr;
+	MAI_SERVPORT_STR client_port;
 	int     aierr;
 	char   *colonp;
+
+	/*
+	 * Sanity check: we can't use sockets that we're not configured for.
+	 */
+	if (strchr((char *) proto_info->sa_family_list, sa->sa_family) == 0)
+	    msg_fatal("cannot handle socket type %s with \"%s = %s\"",
+#ifdef AF_INET6
+		      sa->sa_family == AF_INET6 ? "AF_INET6" :
+#endif
+		      sa->sa_family == AF_INET ? "AF_INET" :
+		      "other", VAR_INET_PROTOCOLS, var_inet_protocols);
 
 	/*
 	 * Sorry, but there are some things that we just cannot do while
@@ -197,9 +219,10 @@ void    smtpd_peer_init(SMTPD_STATE *state)
 	 * Convert the client address to printable form.
 	 */
 	if ((aierr = sockaddr_to_hostaddr(sa, sa_length, &client_addr,
-					  (MAI_SERVPORT_STR *) 0, 0)) != 0)
-	    msg_fatal("%s: cannot convert client address to string: %s",
+					  &client_port, 0)) != 0)
+	    msg_fatal("%s: cannot convert client address/port to string: %s",
 		      myname, MAI_STRERROR(aierr));
+	state->port = mystrdup(client_port.buf);
 
 	/*
 	 * We convert IPv4-in-IPv6 address to 'true' IPv4 address early on,
@@ -344,13 +367,16 @@ void    smtpd_peer_init(SMTPD_STATE *state)
 	state->addr_family = AF_UNSPEC;
 	state->name_status = SMTPD_PEER_CODE_OK;
 	state->reverse_name_status = SMTPD_PEER_CODE_OK;
+	state->port = mystrdup("0");		/* XXX bogus. */
     }
 
     /*
-     * Do the name[addr] formatting for pretty reports.
+     * Do the name[addr]:port formatting for pretty reports.
      */
     state->namaddr =
-	concatenate(state->name, "[", state->addr, "]", (char *) 0);
+	concatenate(state->name, "[", state->addr, "]",
+		    var_smtpd_client_port_log ? ":" : (char *) 0,
+		    state->port, (char *) 0);
 }
 
 /* smtpd_peer_reset - destroy peer information */
@@ -362,4 +388,5 @@ void    smtpd_peer_reset(SMTPD_STATE *state)
     myfree(state->addr);
     myfree(state->namaddr);
     myfree(state->rfc_addr);
+    myfree(state->port);
 }
