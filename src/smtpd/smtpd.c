@@ -719,7 +719,7 @@
 /*	The sender address to use in address verification probes; prior
 /*	to Postfix 2.5 the default was "postmaster".
 /* .IP "\fBunverified_sender_reject_code (450)\fR"
-/*	The numerical Postfix SMTP server response code when a recipient
+/*	The numerical Postfix SMTP server response code when a sender
 /*	address is rejected by the reject_unverified_sender restriction.
 /* .IP "\fBunverified_recipient_reject_code (450)\fR"
 /*	The numerical Postfix SMTP server response when a recipient address
@@ -2108,14 +2108,14 @@ static int mail_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
     if (smtpd_milters != 0
 	&& SMTPD_STAND_ALONE(state) == 0
 	&& (state->saved_flags & MILTER_SKIP_FLAGS) == 0) {
+	PUSH_STRING(saved_sender, state->sender, STR(state->addr_buf));
 	err = milter_mail_event(smtpd_milters,
 				milter_argv(state, argc - 2, argv + 2));
 	if (err != 0) {
 	    /* Log reject etc. with correct sender information. */
-	    PUSH_STRING(saved_sender, state->sender, STR(state->addr_buf));
 	    err = check_milter_reply(state, err);
-	    POP_STRING(saved_sender, state->sender);
 	}
+	POP_STRING(saved_sender, state->sender);
 	if (err != 0) {
 	    /* XXX Reset access map side effects. */
 	    mail_reset(state);
@@ -2362,14 +2362,14 @@ static int rcpt_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
 	}
 	if (smtpd_milters != 0
 	    && (state->saved_flags & MILTER_SKIP_FLAGS) == 0) {
+	    PUSH_STRING(saved_rcpt, state->recipient, STR(state->addr_buf));
 	    err = milter_rcpt_event(smtpd_milters,
 				    milter_argv(state, argc - 2, argv + 2));
 	    if (err != 0) {
 		/* Log reject etc. with correct recipient information. */
-		PUSH_STRING(saved_rcpt, state->recipient, STR(state->addr_buf));
 		err = check_milter_reply(state, err);
-		POP_STRING(saved_rcpt, state->recipient);
 	    }
+	    POP_STRING(saved_rcpt, state->recipient);
 	    if (err != 0) {
 		smtpd_chat_reply(state, "%s", err);
 		return (-1);
@@ -3405,8 +3405,7 @@ static int xclient_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
 	if (state->namaddr)
 	    myfree(state->namaddr);
 	state->namaddr =
-	    concatenate(state->name, "[", state->addr, "]:",
-			state->port, (char *) 0);
+	    SMTPD_BUILD_NAMADDRPORT(state->name, state->addr, state->port);
     }
 
     /*
@@ -3671,10 +3670,10 @@ static int xforward_cmd(SMTPD_STATE *state, int argc, SMTPD_TOKEN *argv)
 	    myfree(state->xforward.namaddr);
 	state->xforward.namaddr =
 	    IS_AVAIL_CLIENT_ADDR(state->xforward.addr) ?
-	    concatenate(state->xforward.name, "[",
-			state->xforward.addr, "]:",
-			state->xforward.port,
-			(char *) 0) : mystrdup(state->xforward.name);
+	    SMTPD_BUILD_NAMADDRPORT(state->xforward.name,
+				    state->xforward.addr,
+				    state->xforward.port) :
+	    mystrdup(state->xforward.name);
     }
     smtpd_chat_reply(state, "250 2.0.0 Ok");
     return (0);
