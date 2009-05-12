@@ -318,6 +318,14 @@ static int deliver_request_get(VSTREAM *stream, DELIVER_REQUEST *request)
      * duplicate deliveries when the queue is flushed immediately after queue
      * manager restart.
      * 
+     * The queue manager locks the file exclusively when it enters the active
+     * queue, and releases the lock before starting deliveries from that
+     * file. The queue manager does not lock the file again when reading more
+     * recipients into memory. When the queue manager is restarted, the new
+     * process moves files from the active queue to the incoming queue to cool
+     * off for a while. Delivery agents should therefore never try to open a
+     * file that is locked by a queue manager process.
+     * 
      * Opening the queue file can fail for a variety of reasons, such as the
      * system running out of resources. Instead of throwing away mail, we're
      * raising a fatal error which forces the mail system to back off, and

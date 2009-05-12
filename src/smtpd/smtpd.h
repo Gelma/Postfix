@@ -176,11 +176,15 @@ typedef struct SMTPD_STATE {
     /*
      * Milter support.
      */
-    const char **milter_argv;
-    ssize_t milter_argc;
+    const char **milter_argv;		/* SMTP command vector */
+    ssize_t milter_argc;		/* SMTP command vector */
+    const char *milter_reject_text;	/* input to call-back from Milter */
 } SMTPD_STATE;
 
-#define SMTPD_FLAG_HANGUP	(1<<0)	/* disconnect */
+#define SMTPD_FLAG_HANGUP	   (1<<0)	/* 421/521 disconnect */
+#define SMTPD_FLAG_ILL_PIPELINING  (1<<1)	/* inappropriate pipelining */
+
+#define SMTPD_MASK_MAIL_KEEP		~0	/* keep all after MAIL reset */
 
 #define SMTPD_STATE_XFORWARD_INIT  (1<<0)	/* xforward preset done */
 #define SMTPD_STATE_XFORWARD_NAME  (1<<1)	/* client name received */
@@ -204,6 +208,7 @@ extern void smtpd_state_reset(SMTPD_STATE *);
   * diagnostics.
   */
 #define SMTPD_AFTER_CONNECT	"CONNECT"
+#define SMTPD_AFTER_DATA	"DATA content"
 #define SMTPD_AFTER_DOT		"END-OF-MESSAGE"
 
  /*
@@ -228,9 +233,29 @@ extern void smtpd_state_reset(SMTPD_STATE *);
 #define SMTPD_CMD_UNKNOWN	"UNKNOWN"
 
  /*
-  * Representation of unknown client information within smtpd processes. This
-  * is not the representation that Postfix uses in queue files, in queue
-  * manager delivery requests, or in XCLIENT/XFORWARD commands!
+  * Representation of unknown and non-existent client information. Throughout
+  * Postfix, we use the "unknown" string value for unknown client information
+  * (e.g., unknown remote client hostname), and we use the empty string, null
+  * pointer or "no queue file record" for non-existent client information
+  * (e.g., no HELO command, or local submission).
+  * 
+  * Inside the SMTP server, unknown real client attributes are represented by
+  * the string "unknown", and non-existent HELO is represented as a null
+  * pointer. The SMTP server uses this same representation internally for
+  * forwarded client attributes; the XFORWARD syntax makes no distinction
+  * between unknown (remote submission) and non-existent (local submission).
+  * 
+  * The SMTP client sends forwarded client attributes only when upstream client
+  * attributes exist (i.e. remote submission). Thus, local submissions will
+  * appear to come from an SMTP-based content filter, which is acceptable.
+  * 
+  * Known/unknown client attribute values use the SMTP server's internal
+  * representation in queue files, in queue manager delivery requests, and in
+  * delivery agent $name expansions.
+  * 
+  * Non-existent attribute values are never present in queue files. Non-existent
+  * information is represented as empty strings in queue manager delivery
+  * requests and in delivery agent $name expansions.
   */
 #define CLIENT_ATTR_UNKNOWN	"unknown"
 
@@ -280,21 +305,16 @@ extern void smtpd_peer_reset(SMTPD_STATE *state);
 #define SMTPD_PEER_CODE_FORGED	6
 
  /*
-  * Choose between normal or forwarded attributes.
-  * 
-  * Note 1: inside the SMTP server, forwarded attributes must have the exact
-  * same representation as normal attributes: unknown string values are
-  * "unknown", except for HELO which defaults to null. This is better than
-  * having to change every piece of code that accesses a possibly forwarded
-  * attribute.
-  * 
-  * Note 2: outside the SMTP server, the representation of unknown/known
-  * attribute values is different in queue files, in queue manager delivery
-  * requests, and in over-the-network XFORWARD commands.
-  * 
-  * Note 3: if forwarding client information, don't mix information from the
-  * current SMTP session with forwarded information from an up-stream
-  * session.
+  * Construct name[addr] or name[addr]:port as appropriate
+  */
+#define SMTPD_BUILD_NAMADDRPORT(name, addr, port) \
+	concatenate((name), "[", (addr), "]", \
+		    var_smtpd_client_port_log ? ":" : (char *) 0, \
+		    (port), (char *) 0)
+
+ /*
+  * Don't mix information from the current SMTP session with forwarded
+  * information from an up-stream session.
   */
 #define FORWARD_CLIENT_ATTR(s, a) \
 	(((s)->xforward.flags & SMTPD_STATE_XFORWARD_CLIENT_MASK) ? \

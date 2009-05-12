@@ -69,6 +69,11 @@
 /*	order as specified, and multiple instances of the same type
 /*	are allowed. Raw parameters are not subjected to $name
 /*	evaluation.
+/* .IP "MAIL_SERVER_NINT_TABLE (CONFIG_NINT_TABLE *)"
+/*	A table with configurable parameters, to be loaded from the
+/*	global Postfix configuration file. Tables are loaded in the
+/*	order as specified, and multiple instances of the same type
+/*	are allowed.
 /* .IP "MAIL_SERVER_PRE_INIT (void *(char *service_name, char **argv))"
 /*	A pointer to a function that is called once
 /*	by the skeleton after it has read the global configuration file
@@ -108,6 +113,9 @@
 /*	This service must be configured with process limit of 0.
 /* .IP MAIL_SERVER_PRIVILEGED
 /*	This service must be configured as privileged.
+/* .IP "MAIL_SERVER_WATCHDOG (int *)"
+/*	Override the default 1000s watchdog timeout. The value is
+/*	used after command-line and main.cf file processing.
 /* .PP
 /*	The var_use_limit variable limits the number of clients that
 /*	a server can service before it commits suicide.
@@ -206,6 +214,7 @@ static void (*trigger_server_pre_accept) (char *, char **);
 static VSTREAM *trigger_server_lock;
 static int trigger_server_in_flow_delay;
 static unsigned trigger_server_generation;
+static int trigger_server_watchdog = 1000;
 
 /* trigger_server_exit - normal termination */
 
@@ -404,6 +413,7 @@ NORETURN trigger_server_main(int argc, char **argv, TRIGGER_SERVER_FN service,..
     int     alone = 0;
     int     zerolimit = 0;
     WATCHDOG *watchdog;
+    char   *oname;
     char   *oval;
     char   *generation;
     int     msg_vstream_needed = 0;
@@ -484,10 +494,11 @@ NORETURN trigger_server_main(int argc, char **argv, TRIGGER_SERVER_FN service,..
 	    break;
 	case 'o':
 	    /* XXX Use split_nameval() */
-	    if ((oval = split_at(optarg, '=')) == 0)
+	    oname = mystrdup(optarg);
+	    if ((oval = split_at(oname, '=')) == 0)
 		oval = "";
-	    mail_conf_update(optarg, oval);
-	    if (strcmp(optarg, VAR_SYSLOG_NAME) == 0)
+	    mail_conf_update(oname, oval);
+	    if (strcmp(oname, VAR_SYSLOG_NAME) == 0)
 		redo_syslog_init = 1;
 	    break;
 	case 's':
@@ -555,6 +566,9 @@ NORETURN trigger_server_main(int argc, char **argv, TRIGGER_SERVER_FN service,..
 	case MAIL_SERVER_RAW_TABLE:
 	    get_mail_conf_raw_table(va_arg(ap, CONFIG_RAW_TABLE *));
 	    break;
+	case MAIL_SERVER_NINT_TABLE:
+	    get_mail_conf_nint_table(va_arg(ap, CONFIG_NINT_TABLE *));
+	    break;
 	case MAIL_SERVER_PRE_INIT:
 	    pre_init = va_arg(ap, MAIL_SERVER_INIT_FN);
 	    break;
@@ -587,6 +601,9 @@ NORETURN trigger_server_main(int argc, char **argv, TRIGGER_SERVER_FN service,..
 	    if (user_name)
 		msg_fatal("service %s requires privileged operation",
 			  service_name);
+	    break;
+	case MAIL_SERVER_WATCHDOG:
+	    trigger_server_watchdog = *va_arg(ap, int *);
 	    break;
 	default:
 	    msg_panic("%s: unknown argument type: %d", myname, key);
@@ -723,7 +740,8 @@ NORETURN trigger_server_main(int argc, char **argv, TRIGGER_SERVER_FN service,..
     close_on_exec(MASTER_STATUS_FD, CLOSE_ON_EXEC);
     close_on_exec(MASTER_FLOW_READ, CLOSE_ON_EXEC);
     close_on_exec(MASTER_FLOW_WRITE, CLOSE_ON_EXEC);
-    watchdog = watchdog_create(1000, (WATCHDOG_FN) 0, (char *) 0);
+    watchdog = watchdog_create(trigger_server_watchdog,
+			       (WATCHDOG_FN) 0, (char *) 0);
 
     /*
      * The event loop, at last.

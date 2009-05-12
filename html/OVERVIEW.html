@@ -21,7 +21,7 @@ Architecture Overview </h1>
 <h2> Introduction </h2>
 
 <p> This document presents an overview of the Postfix architecture,
-and is the place where you find a pointer to every Postfix command
+and provides pointers to descriptions of every Postfix command
 or server program.  The text gives the general context in which
 each command or server program is used, and provides pointers to
 documents with specific usage examples and background information.
@@ -173,7 +173,8 @@ notifications about problems with Postfix.  </p>
 
 <li> <p> The <a href="cleanup.8.html">cleanup(8)</a> server implements the final processing
 stage before mail is queued. It adds missing From: and other message
-headers, transforms addresses as described in the <a href="ADDRESS_REWRITING_README.html">ADDRESS_REWRITING_README</a>
+headers, and transforms addresses as described in the
+<a href="ADDRESS_REWRITING_README.html">ADDRESS_REWRITING_README</a>
 document. Optionally, the <a href="cleanup.8.html">cleanup(8)</a> server can be configured to
 do light-weight content inspection with regular expressions as
 described in the <a href="BUILTIN_FILTER_README.html">BUILTIN_FILTER_README</a> document.  The  <a href="cleanup.8.html">cleanup(8)</a>
@@ -726,6 +727,11 @@ for shell scripts. </p>
 <li> <p> The <a href="postmap.1.html">postmap(1)</a> command maintains Postfix lookup tables
 such as <a href="canonical.5.html">canonical(5)</a>, <a href="virtual.5.html">virtual(5)</a> and others. It is a cousin of the
 UNIX makemap command. </p>
+
+<li> <p> The <a href="postmulti.1.html">postmulti(1)</a> command repeats the "postfix start" etc.
+command for each Postfix instance, and supports creation, deletion
+etc. of Postfix instances. For a tutorial, see <a href="MULTI_INSTANCE_README.html">MULTI_INSTANCE_README</a>.
+</p>
 
 <li> <p> The <a href="postqueue.1.html">postqueue(1)</a> command is the privileged command that
 is run by Postfix <a href="sendmail.1.html">sendmail(1)</a> and <a href="mailq.1.html">mailq(1)</a> in order to flush or

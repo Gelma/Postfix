@@ -300,10 +300,6 @@
 /*	~\fIname\fR/.\fBforward\fR+\fIfoo\fR or in ~\fIname\fR/.\fBforward\fR,
 /*	to the mailbox owned by the user \fIname\fR, or it is sent back as
 /*	undeliverable.
-/*
-/*	In all cases the \fBlocal\fR(8) daemon prepends an optional
-/*	`\fBDelivered-To:\fR header line with the final recipient
-/*	address.
 /* DELIVERY RIGHTS
 /* .ad
 /* .fi
@@ -381,6 +377,10 @@
 /*	address (see prepend_delivered_header) only once, at the start of
 /*	a delivery attempt; do not update the Delivered-To: address while
 /*	expanding aliases or .forward files.
+/* .PP
+/*	Available in Postfix version 2.5.3 and later:
+/* .IP "\fBstrict_mailbox_ownership (yes)\fR"
+/*	Defer delivery when a mailbox file is not owned by its recipient.
 /* DELIVERY METHOD CONTROLS
 /* .ad
 /* .fi
@@ -471,7 +471,7 @@
 /*	Restrict \fBlocal\fR(8) mail delivery to external files.
 /* .IP "\fBcommand_expansion_filter (see 'postconf -d' output)\fR"
 /*	Restrict the characters that the \fBlocal\fR(8) delivery agent allows in
-/*	$name expansions of $mailbox_command.
+/*	$name expansions of $mailbox_command and $command_execution_directory.
 /* .IP "\fBdefault_privs (nobody)\fR"
 /*	The default rights used by the \fBlocal\fR(8) delivery agent for delivery
 /*	to external file or command.
@@ -483,6 +483,10 @@
 /* .IP "\fBexecution_directory_expansion_filter (see 'postconf -d' output)\fR"
 /*	Restrict the characters that the \fBlocal\fR(8) delivery agent allows
 /*	in $name expansions of $command_execution_directory.
+/* .PP
+/*	Available in Postfix version 2.5.3 and later:
+/* .IP "\fBstrict_mailbox_ownership (yes)\fR"
+/*	Defer delivery when a mailbox file is not owned by its recipient.
 /* MISCELLANEOUS CONTROLS
 /* .ad
 /* .fi
@@ -529,7 +533,7 @@
 /*	before mail delivery is attempted.
 /* .IP "\fBsyslog_facility (mail)\fR"
 /*	The syslog facility of Postfix logging.
-/* .IP "\fBsyslog_name (postfix)\fR"
+/* .IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 /*	The mail system name that is prepended to the process name in syslog
 /*	records, so that "smtpd" becomes, for example, "postfix/smtpd".
 /* FILES
@@ -644,6 +648,7 @@ int     var_mailtool_compat;
 char   *var_mailbox_lock;
 int     var_mailbox_limit;
 bool    var_frozen_delivered;
+bool    var_strict_mbox_owner;
 
 int     local_cmd_deliver_mask;
 int     local_file_deliver_mask;
@@ -891,6 +896,7 @@ int     main(int argc, char **argv)
 	VAR_STAT_HOME_DIR, DEF_STAT_HOME_DIR, &var_stat_home_dir,
 	VAR_MAILTOOL_COMPAT, DEF_MAILTOOL_COMPAT, &var_mailtool_compat,
 	VAR_FROZEN_DELIVERED, DEF_FROZEN_DELIVERED, &var_frozen_delivered,
+	VAR_STRICT_MBOX_OWNER, DEF_STRICT_MBOX_OWNER, &var_strict_mbox_owner,
 	0,
     };
 

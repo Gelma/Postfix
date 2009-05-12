@@ -93,7 +93,7 @@
 /* __FreeBSD_version version is major+minor */
 
 #if __FreeBSD_version >= 220000
-#define HAS_DEV_URANDOM			/* introduced in 2.1.5 */
+#define PREFERRED_RAND_SOURCE	"dev:/dev/urandom"	/* introduced 2.1.5 */
 #endif
 
 #if __FreeBSD_version >= 300000
@@ -116,9 +116,12 @@
 #define HAS_FUTIMES			/* XXX maybe earlier */
 #endif
 
+#if (defined(OpenBSD) && OpenBSD >= 199608)
+#define PREFERRED_RAND_SOURCE	"dev:/dev/arandom"	/* XXX earlier */
+#endif
+
 #if OpenBSD >= 200000			/* XXX */
 #define HAS_ISSETUGID
-#define HAS_DEV_URANDOM			/* XXX probably earlier */
 #endif
 
 #if OpenBSD >= 200200			/* XXX */
@@ -135,7 +138,7 @@
 #if __NetBSD_Version__ >= 103000000	/* XXX maybe earlier */
 #undef DEF_MAILBOX_LOCK
 #define DEF_MAILBOX_LOCK "flock, dotlock"
-#define HAS_DEV_URANDOM			/* XXX probably earlier */
+#define PREFERRED_RAND_SOURCE	"dev:/dev/urandom"	/* XXX maybe earlier */
 #endif
 
 #if __NetBSD_Version__ >= 105000000
@@ -223,6 +226,11 @@
 #define NATIVE_DAEMON_DIR "/usr/libexec/postfix"
 #define SOCKADDR_SIZE	socklen_t
 #define SOCKOPT_SIZE	socklen_t
+#ifndef NO_KQUEUE
+# define EVENTS_STYLE	EVENTS_STYLE_KQUEUE
+# define USE_SYSV_POLL
+#endif
+
 #endif
 
  /*
@@ -417,7 +425,7 @@ extern int opterr;
 # define HAS_CLOSEFROM
 #endif
 #ifndef NO_DEV_URANDOM
-# define HAS_DEV_URANDOM
+# define PREFERRED_RAND_SOURCE	"dev:/dev/urandom"
 #endif
 #ifndef NO_FUTIMESAT
 # define HAS_FUTIMESAT
@@ -718,19 +726,25 @@ extern int initgroups(const char *, int);
 #define NATIVE_NEWALIAS_PATH "/usr/bin/newaliases"
 #define NATIVE_COMMAND_DIR "/usr/sbin"
 #define NATIVE_DAEMON_DIR "/usr/libexec/postfix"
-#if __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1
-#define SOCKADDR_SIZE	socklen_t
-#define SOCKOPT_SIZE	socklen_t
+#ifdef __GLIBC_PREREQ
+# define HAVE_GLIBC_API_VERSION_SUPPORT(maj, min) __GLIBC_PREREQ(maj, min)
+#else
+# define HAVE_GLIBC_API_VERSION_SUPPORT(maj, min) \
+    ((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
+#endif
+#if HAVE_GLIBC_API_VERSION_SUPPORT(2, 1)
+# define SOCKADDR_SIZE	socklen_t
+# define SOCKOPT_SIZE	socklen_t
 #endif
 #ifndef NO_IPV6
 # define HAS_IPV6
-#if defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2,4)
+# if HAVE_GLIBC_API_VERSION_SUPPORT(2, 4)
 /* Really 2.3.3 or later, but there's no __GLIBC_MICRO version macro. */
-# define HAVE_GETIFADDRS
-#else
-# define HAS_PROCNET_IFINET6
-# define _PATH_PROCNET_IFINET6 "/proc/net/if_inet6"
-#endif
+#  define HAVE_GETIFADDRS
+# else
+#  define HAS_PROCNET_IFINET6
+#  define _PATH_PROCNET_IFINET6 "/proc/net/if_inet6"
+# endif
 #endif
 #include <linux/version.h>
 #if !defined(KERNEL_VERSION) 
@@ -743,7 +757,7 @@ extern int initgroups(const char *, int);
 #else
 # define CANT_WRITE_BEFORE_SENDING_FD
 #endif
-#define HAS_DEV_URANDOM			/* introduced in 1.1 */
+#define PREFERRED_RAND_SOURCE	"dev:/dev/urandom"	/* introduced in 1.1 */
 #ifndef NO_EPOLL
 # define EVENTS_STYLE	EVENTS_STYLE_EPOLL	/* introduced in 2.5 */
 #endif
@@ -841,7 +855,7 @@ extern int initgroups(const char *, int);
 #endif
 #define CANT_USE_SEND_RECV_MSG
 #define DEF_SMTP_CACHE_DEMAND	0
-#define HAS_DEV_URANDOM
+#define PREFERRED_RAND_SOURCE	"dev:/dev/urandom"
 #endif
 
  /*
@@ -1270,6 +1284,10 @@ extern int inet_pton(int, const char *, void *);
 #define EVENTS_STYLE_KQUEUE	2	/* FreeBSD kqueue */
 #define EVENTS_STYLE_DEVPOLL	3	/* Solaris /dev/poll */
 #define EVENTS_STYLE_EPOLL	4	/* Linux epoll */
+
+#if !defined(USE_SYSV_POLL) && (EVENTS_STYLE != EVENTS_STYLE_SELECT)
+#error "need USE_SYSV_POLL with EVENTS_STYLE != EVENTS_STYLE_SELECT"
+#endif
 
  /*
   * Defaults for all systems.

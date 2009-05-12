@@ -244,6 +244,7 @@
 #include "smtpd_sasl_glue.h"
 #include "smtpd_check.h"
 #include "smtpd_dsn_fix.h"
+#include "smtpd_resolve.h"
 
 #define RESTRICTION_SEPARATORS ", \t\r\n"
 
@@ -264,7 +265,6 @@ static jmp_buf smtpd_check_buf;
   * memory manager routines.
   */
 static VSTRING *error_text;
-static CTABLE *smtpd_resolve_cache;
 static CTABLE *smtpd_rbl_cache;
 
  /*
@@ -347,6 +347,14 @@ static int check_recipient_rcpt_maps(SMTPD_STATE *, const char *);
 static int check_rcpt_maps(SMTPD_STATE *, const char *, const char *);
 
  /*
+  * Tempfail actions;
+  */
+static int unk_name_tf_act;
+static int unk_addr_tf_act;
+static int unv_rcpt_tf_act;
+static int unv_from_tf_act;
+
+ /*
   * YASLM.
   */
 #define STR	vstring_str
@@ -377,7 +385,7 @@ static int check_rcpt_maps(SMTPD_STATE *, const char *, const char *);
   * permit-style restriction fails. Otherwise, we could reject legitimate
   * mail.
   */
-static void PRINTFLIKE(5, 6) defer_if(SMTPD_DEFER *, int, int, const char *, const char *,...);
+static int PRINTFLIKE(5, 6) defer_if(SMTPD_DEFER *, int, int, const char *, const char *,...);
 static int PRINTFLIKE(5, 6) smtpd_check_reject(SMTPD_STATE *, int, int, const char *, const char *,...);
 
 #define DEFER_IF_REJECT2(state, class, code, dsn, fmt, a1, a2) \
@@ -386,24 +394,24 @@ static int PRINTFLIKE(5, 6) smtpd_check_reject(SMTPD_STATE *, int, int, const ch
     defer_if(&(state)->defer_if_reject, (class), (code), (dsn), (fmt), (a1), (a2), (a3))
 #define DEFER_IF_REJECT4(state, class, code, dsn, fmt, a1, a2, a3, a4) \
     defer_if(&(state)->defer_if_reject, (class), (code), (dsn), (fmt), (a1), (a2), (a3), (a4))
-#define DEFER_IF_PERMIT2(state, class, code, dsn, fmt, a1, a2) do { \
-    if ((state)->warn_if_reject == 0) \
-	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2)); \
-    else \
-	(void) smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2)); \
-    } while (0)
-#define DEFER_IF_PERMIT3(state, class, code, dsn, fmt, a1, a2, a3) do { \
-    if ((state)->warn_if_reject == 0) \
-	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2), (a3)); \
-    else \
-	(void) smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2), (a3)); \
-    } while (0)
-#define DEFER_IF_PERMIT4(state, class, code, dsn, fmt, a1, a2, a3, a4) do { \
-    if ((state)->warn_if_reject == 0) \
-	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2), (a3), (a4)); \
-    else \
-	(void) smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2), (a3), (a4)); \
-    } while (0)
+
+#define DEFER_EXPLICIT 1
+
+#define DEFER_IF_PERMIT2(type, state, class, code, dsn, fmt, a1, a2) \
+    (((state)->warn_if_reject == 0 && (type) != 0) ? \
+	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2)) \
+    : \
+	smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2)))
+#define DEFER_IF_PERMIT3(type, state, class, code, dsn, fmt, a1, a2, a3) \
+    (((state)->warn_if_reject == 0 && (type) != 0) ? \
+	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2), (a3)) \
+    : \
+	smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2), (a3)))
+#define DEFER_IF_PERMIT4(type, state, class, code, dsn, fmt, a1, a2, a3, a4) \
+    (((state)->warn_if_reject == 0 && (type) != 0) ? \
+	defer_if(&(state)->defer_if_permit, (class), (code), (dsn), (fmt), (a1), (a2), (a3), (a4)) \
+    : \
+	smtpd_check_reject((state), (class), (code), (dsn), (fmt), (a1), (a2), (a3), (a4)))
 
  /*
   * Cached RBL lookup state.
@@ -426,48 +434,6 @@ typedef struct {
     const char *class;			/* name of rejected value */
     const char *txt;			/* randomly selected trimmed TXT rr */
 } SMTPD_RBL_EXPAND_CONTEXT;
-
-/* resolve_pagein - page in an address resolver result */
-
-static void *resolve_pagein(const char *addr, void *unused_context)
-{
-    static VSTRING *query;
-    RESOLVE_REPLY *reply;
-
-    /*
-     * Initialize on the fly.
-     */
-    if (query == 0)
-	query = vstring_alloc(10);
-
-    /*
-     * Initialize.
-     */
-    reply = (RESOLVE_REPLY *) mymalloc(sizeof(*reply));
-    resolve_clnt_init(reply);
-
-    /*
-     * Resolve the address.
-     */
-    rewrite_clnt_internal(MAIL_ATTR_RWR_LOCAL, addr, query);
-    resolve_clnt_query(STR(query), reply);
-    lowercase(STR(reply->recipient));
-
-    /*
-     * Save the result.
-     */
-    return ((void *) reply);
-}
-
-/* resolve_pageout - page out an address resolver result */
-
-static void resolve_pageout(void *data, void *unused_context)
-{
-    RESOLVE_REPLY *reply = (RESOLVE_REPLY *) data;
-
-    resolve_clnt_free(reply);
-    myfree((void *) reply);
-}
 
 /* policy_client_register - register policy service endpoint */
 
@@ -591,6 +557,11 @@ void    smtpd_check_init(void)
 	DEFER_IF_PERMIT,
 	0,
     };
+    static NAME_CODE tempfail_actions[] = {
+	DEFER_ALL, 0,
+	DEFER_IF_PERMIT, 1,
+	0, -1,
+    };
 
     /*
      * Pre-open access control lists before going to jail.
@@ -655,8 +626,7 @@ void    smtpd_check_init(void)
      * Initialize the resolved address cache. Note: the cache persists across
      * SMTP sessions so we cannot make it dependent on session state.
      */
-    smtpd_resolve_cache = ctable_create(100, resolve_pagein,
-					resolve_pageout, (void *) 0);
+    smtpd_resolve_init(100);
 
     /*
      * Initialize the RBL lookup cache. Note: the cache persists across SMTP
@@ -733,6 +703,35 @@ void    smtpd_check_init(void)
      */
     local_rewrite_clients = smtpd_check_parse(SMTPD_CHECK_PARSE_MAPS,
 					      var_local_rwr_clients);
+
+    /*
+     * Tempfail_actions.
+     * 
+     * XXX This name-to-number mapping should be encapsulated in a separate
+     * mail_conf_name_code.c module.
+     */
+    if ((unk_name_tf_act = name_code(tempfail_actions, NAME_CODE_FLAG_NONE,
+				     var_unk_name_tf_act)) < 0)
+	msg_fatal("bad configuration: %s = %s",
+		  VAR_UNK_NAME_TF_ACT, var_unk_name_tf_act);
+    if ((unk_addr_tf_act = name_code(tempfail_actions, NAME_CODE_FLAG_NONE,
+				     var_unk_addr_tf_act)) < 0)
+	msg_fatal("bad configuration: %s = %s",
+		  VAR_UNK_ADDR_TF_ACT, var_unk_addr_tf_act);
+    if ((unv_rcpt_tf_act = name_code(tempfail_actions, NAME_CODE_FLAG_NONE,
+				     var_unv_rcpt_tf_act)) < 0)
+	msg_fatal("bad configuration: %s = %s",
+		  VAR_UNV_RCPT_TF_ACT, var_unv_rcpt_tf_act);
+    if ((unv_from_tf_act = name_code(tempfail_actions, NAME_CODE_FLAG_NONE,
+				     var_unv_from_tf_act)) < 0)
+	msg_fatal("bad configuration: %s = %s",
+		  VAR_UNV_FROM_TF_ACT, var_unv_from_tf_act);
+    if (msg_verbose) {
+	msg_info("%s = %s", VAR_UNK_NAME_TF_ACT, tempfail_actions[unk_name_tf_act].name);
+	msg_info("%s = %s", VAR_UNK_ADDR_TF_ACT, tempfail_actions[unk_addr_tf_act].name);
+	msg_info("%s = %s", VAR_UNV_RCPT_TF_ACT, tempfail_actions[unv_rcpt_tf_act].name);
+	msg_info("%s = %s", VAR_UNV_FROM_TF_ACT, tempfail_actions[unv_from_tf_act].name);
+    }
 }
 
 /* log_whatsup - log as much context as we have */
@@ -866,9 +865,9 @@ static int smtpd_check_reject(SMTPD_STATE *state, int error_class,
 
 /* defer_if - prepare to change our mind */
 
-static void defer_if(SMTPD_DEFER *defer, int error_class,
-		             int code, const char *dsn,
-		             const char *fmt,...)
+static int defer_if(SMTPD_DEFER *defer, int error_class,
+		            int code, const char *dsn,
+		            const char *fmt,...)
 {
     va_list ap;
 
@@ -889,6 +888,7 @@ static void defer_if(SMTPD_DEFER *defer, int error_class,
 	vstring_vsprintf(defer->reason, fmt, ap);
 	va_end(ap);
     }
+    return (SMTPD_CHECK_DUNNO);
 }
 
 /* reject_dict_retry - reject with temporary failure if dict lookup fails */
@@ -1168,10 +1168,10 @@ static int reject_unknown_hostname(SMTPD_STATE *state, char *name,
 				       "Malformed DNS server reply" :
 				       "Host not found"));
 	else
-	    DEFER_IF_PERMIT2(state, MAIL_ERROR_POLICY,
-			     450, "4.7.1",
-			     "<%s>: %s rejected: Host not found",
-			     reply_name, reply_class);
+	    return (DEFER_IF_PERMIT2(unk_name_tf_act, state, MAIL_ERROR_POLICY,
+				     450, "4.7.1",
+				     "<%s>: %s rejected: Host not found",
+				     reply_name, reply_class));
     }
     return (SMTPD_CHECK_DUNNO);
 }
@@ -1207,11 +1207,11 @@ static int reject_unknown_mailhost(SMTPD_STATE *state, const char *name,
 				       "Malformed DNS server reply" :
 				       "Domain not found"));
 	else
-	    DEFER_IF_PERMIT2(state, MAIL_ERROR_POLICY,
+	    return (DEFER_IF_PERMIT2(unk_addr_tf_act, state, MAIL_ERROR_POLICY,
 			  450, strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
-			     "4.1.8" : "4.1.2",
-			     "<%s>: %s rejected: Domain not found",
-			     reply_name, reply_class);
+				     "4.1.8" : "4.1.2",
+				     "<%s>: %s rejected: Domain not found",
+				     reply_name, reply_class));
     }
     return (SMTPD_CHECK_DUNNO);
 }
@@ -1308,8 +1308,7 @@ static int permit_auth_destination(SMTPD_STATE *state, char *recipient)
     /*
      * Resolve the address.
      */
-    reply = (const RESOLVE_REPLY *)
-	ctable_locate(smtpd_resolve_cache, recipient);
+    reply = smtpd_resolve_addr(recipient);
     if (reply->flags & RESOLVE_FLAG_FAIL)
 	reject_dict_retry(state, recipient);
 
@@ -1378,17 +1377,12 @@ static int reject_unauth_pipelining(SMTPD_STATE *state,
     if (msg_verbose)
 	msg_info("%s: %s", myname, state->where);
 
-    if (state->client != 0
-	&& SMTPD_STAND_ALONE(state) == 0
-	&& (vstream_peek(state->client) > 0
-	    || peekfd(vstream_fileno(state->client)) > 0)
-	&& (strcasecmp(state->protocol, MAIL_PROTO_ESMTP) != 0
-	    || strcasecmp(state->where, SMTPD_CMD_DATA) == 0)) {
+    if (state->flags & SMTPD_FLAG_ILL_PIPELINING)
 	return (smtpd_check_reject(state, MAIL_ERROR_PROTOCOL,
 				   503, "5.5.0",
 	       "<%s>: %s rejected: Improper use of SMTP command pipelining",
 				   reply_name, reply_class));
-    }
+
     return (SMTPD_CHECK_DUNNO);
 }
 
@@ -1587,8 +1581,7 @@ static int permit_mx_backup(SMTPD_STATE *state, const char *recipient,
     /*
      * Resolve the address.
      */
-    reply = (const RESOLVE_REPLY *)
-	ctable_locate(smtpd_resolve_cache, recipient);
+    reply = smtpd_resolve_addr(recipient);
     if (reply->flags & RESOLVE_FLAG_FAIL)
 	reject_dict_retry(state, recipient);
 
@@ -1756,7 +1749,7 @@ static int reject_unknown_address(SMTPD_STATE *state, const char *addr,
     /*
      * Resolve the address.
      */
-    reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, addr);
+    reply = smtpd_resolve_addr(addr);
     if (reply->flags & RESOLVE_FLAG_FAIL)
 	reject_dict_retry(state, addr);
 
@@ -1781,14 +1774,17 @@ static int reject_unknown_address(SMTPD_STATE *state, const char *addr,
 
 static int reject_unverified_address(SMTPD_STATE *state, const char *addr,
 		            const char *reply_name, const char *reply_class,
-				             int unv_addr_code)
+			             int unv_addr_dcode, int unv_addr_rcode,
+				             int unv_addr_tf_act,
+				             const char *alt_reply)
 {
     const char *myname = "reject_unverified_address";
     VSTRING *why = vstring_alloc(10);
-    int     rqst_status;
+    int     rqst_status = SMTPD_CHECK_DUNNO;
     int     rcpt_status;
     int     verify_status;
     int     count;
+    int     reject_code = 0;
 
     if (msg_verbose)
 	msg_info("%s: %s", myname, addr);
@@ -1806,37 +1802,45 @@ static int reject_unverified_address(SMTPD_STATE *state, const char *addr,
     }
     if (verify_status != VRFY_STAT_OK) {
 	msg_warn("%s service failure", var_verify_service);
-	DEFER_IF_PERMIT2(state, MAIL_ERROR_POLICY,
-			 450, strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
-			 SND_DSN : "4.1.1",
-			 "<%s>: %s rejected: address verification problem",
-			 reply_name, reply_class);
-	rqst_status = SMTPD_CHECK_DUNNO;
+	rqst_status =
+	    DEFER_IF_PERMIT2(unv_addr_tf_act, state, MAIL_ERROR_POLICY,
+			  450, strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
+			     SND_DSN : "4.1.1",
+			  "<%s>: %s rejected: address verification problem",
+			     reply_name, reply_class);
     } else {
 	switch (rcpt_status) {
 	default:
 	    msg_warn("unknown address verification status %d", rcpt_status);
-	    rqst_status = SMTPD_CHECK_DUNNO;
 	    break;
 	case DEL_RCPT_STAT_TODO:
 	case DEL_RCPT_STAT_DEFER:
-	    DEFER_IF_PERMIT3(state, MAIL_ERROR_POLICY,
-			  450, strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
-			     SND_DSN : "4.1.1",
-			     "<%s>: %s rejected: unverified address: %.250s",
-			     reply_name, reply_class, STR(why));
-	    rqst_status = SMTPD_CHECK_DUNNO;
+	    reject_code = unv_addr_dcode;
 	    break;
 	case DEL_RCPT_STAT_OK:
-	    rqst_status = SMTPD_CHECK_DUNNO;
 	    break;
 	case DEL_RCPT_STAT_BOUNCE:
-	    if (unv_addr_code / 100 == 2)
-		rqst_status = SMTPD_CHECK_DUNNO;
-	    else
+	    reject_code = unv_addr_rcode;
+	    break;
+	}
+	if (reject_code >= 400 && *alt_reply)
+	    vstring_strcpy(why, alt_reply);
+	switch (reject_code / 100) {
+	case 2:
+	    break;
+	case 4:
+	    rqst_status =
+		DEFER_IF_PERMIT3(unv_addr_tf_act, state, MAIL_ERROR_POLICY,
+			  450, strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
+				 SND_DSN : "4.1.1",
+			    "<%s>: %s rejected: unverified address: %.250s",
+				 reply_name, reply_class, STR(why));
+	    break;
+	default:
+	    if (reject_code != 0)
 		rqst_status =
 		    smtpd_check_reject(state, MAIL_ERROR_POLICY,
-				       unv_addr_code,
+				       reject_code,
 			       strcmp(reply_class, SMTPD_NAME_SENDER) == 0 ?
 				       SND_DSN : "4.1.1",
 			     "<%s>: %s rejected: undeliverable address: %s",
@@ -1959,7 +1963,22 @@ static int check_table_result(SMTPD_STATE *state, const char *table,
     if (STREQUAL(value, "REJECT", cmd_len)) {
 	dsn_split(&dp, "5.7.1", cmd_text);
 	return (smtpd_check_reject(state, MAIL_ERROR_POLICY,
-				   var_access_map_code,
+				   var_map_reject_code,
+				   smtpd_dsn_fix(DSN_STATUS(dp.dsn),
+						 reply_class),
+				   "<%s>: %s rejected: %s",
+				   reply_name, reply_class,
+				   *dp.text ? dp.text : "Access denied"));
+    }
+
+    /*
+     * DEFER means "try again". Use optional text or generate a generic error
+     * response.
+     */
+    if (STREQUAL(value, "DEFER", cmd_len)) {
+	dsn_split(&dp, "4.7.1", cmd_text);
+	return (smtpd_check_reject(state, MAIL_ERROR_POLICY,
+				   var_map_defer_code,
 				   smtpd_dsn_fix(DSN_STATUS(dp.dsn),
 						 reply_class),
 				   "<%s>: %s rejected: %s",
@@ -2131,12 +2150,12 @@ static int check_table_result(SMTPD_STATE *state, const char *table,
      */
     if (STREQUAL(value, DEFER_IF_PERMIT, cmd_len)) {
 	dsn_split(&dp, "4.7.1", cmd_text);
-	DEFER_IF_PERMIT3(state, MAIL_ERROR_POLICY,
-			 450, smtpd_dsn_fix(DSN_STATUS(dp.dsn), reply_class),
-			 "<%s>: %s rejected: %s",
-			 reply_name, reply_class,
-			 *dp.text ? dp.text : "Service unavailable");
-	return (SMTPD_CHECK_DUNNO);
+	return (DEFER_IF_PERMIT3(DEFER_EXPLICIT, state, MAIL_ERROR_POLICY,
+				 var_map_defer_code,
+			     smtpd_dsn_fix(DSN_STATUS(dp.dsn), reply_class),
+				 "<%s>: %s rejected: %s",
+				 reply_name, reply_class,
+			       *dp.text ? dp.text : "Service unavailable"));
     }
 
     /*
@@ -2146,7 +2165,8 @@ static int check_table_result(SMTPD_STATE *state, const char *table,
     if (STREQUAL(value, DEFER_IF_REJECT, cmd_len)) {
 	dsn_split(&dp, "4.7.1", cmd_text);
 	DEFER_IF_REJECT3(state, MAIL_ERROR_POLICY,
-			 450, smtpd_dsn_fix(DSN_STATUS(dp.dsn), reply_class),
+			 var_map_defer_code,
+			 smtpd_dsn_fix(DSN_STATUS(dp.dsn), reply_class),
 			 "<%s>: %s rejected: %s",
 			 reply_name, reply_class,
 			 *dp.text ? dp.text : "Service unavailable");
@@ -2668,7 +2688,7 @@ static int check_mail_access(SMTPD_STATE *state, const char *table,
     /*
      * Resolve the address.
      */
-    reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, addr);
+    reply = smtpd_resolve_addr(addr);
     if (reply->flags & RESOLVE_FLAG_FAIL)
 	reject_dict_retry(state, addr);
 
@@ -3107,27 +3127,49 @@ static int reject_rbl_addr(SMTPD_STATE *state, const char *rbl_domain,
     int     i;
     SMTPD_RBL_STATE *rbl;
     const char *reply_addr;
+    struct addrinfo *res;
+    unsigned char *ipv6_addr;
 
     if (msg_verbose)
 	msg_info("%s: %s %s", myname, reply_class, addr);
 
-    /*
-     * IPv4 / IPv6-mapped IPv4 (if supported) only for now
-     */
-    if (valid_ipv6_hostaddr(addr, DONT_GRIPE))
-	return SMTPD_CHECK_DUNNO;
+    query = vstring_alloc(100);
 
     /*
-     * Reverse the client IPV4 address, tack on the RBL domain name and query
-     * the DNS for an A record.
+     * Reverse the client IPV6 address, represented as 32 hexadecimal
+     * nibbles. We use the binary address to avoid tricky code. Asking for an
+     * AAAA record makes no sense here. Just like with IPv4 we use the lookup
+     * result as a bit mask, not as an IP address.
      */
-    query = vstring_alloc(100);
-    octets = argv_split(addr, ".");
-    for (i = octets->argc - 1; i >= 0; i--) {
-	vstring_strcat(query, octets->argv[i]);
-	vstring_strcat(query, ".");
+#ifdef HAS_IPV6
+    if (valid_ipv6_hostaddr(addr, DONT_GRIPE)) {
+	if (hostaddr_to_sockaddr(addr, (char *) 0, 0, &res) != 0
+	    || res->ai_family != PF_INET6)
+	    msg_fatal("%s: unable to convert address %s", myname, addr);
+	ipv6_addr = (unsigned char *) &SOCK_ADDR_IN6_ADDR(res->ai_addr);
+	for (i = sizeof(SOCK_ADDR_IN6_ADDR(res->ai_addr)) - 1; i >= 0; i--)
+	    vstring_sprintf_append(query, "%x.%x.",
+				   ipv6_addr[i] & 0xf, ipv6_addr[i] >> 4);
+	freeaddrinfo(res);
+    } else
+#endif
+
+	/*
+	 * Reverse the client IPV4 address, represented as four decimal octet
+	 * values. We use the textual address for convenience.
+	 */
+    {
+	octets = argv_split(addr, ".");
+	for (i = octets->argc - 1; i >= 0; i--) {
+	    vstring_strcat(query, octets->argv[i]);
+	    vstring_strcat(query, ".");
+	}
+	argv_free(octets);
     }
-    argv_free(octets);
+
+    /*
+     * Tack on the RBL domain name and query the DNS for an A record.
+     */
     vstring_strcat(query, rbl_domain);
     reply_addr = split_at(STR(query), '=');
     rbl = (SMTPD_RBL_STATE *) ctable_locate(smtpd_rbl_cache, STR(query));
@@ -3239,8 +3281,8 @@ static int reject_auth_sender_login_mismatch(SMTPD_STATE *state, const char *sen
     /*
      * Reject if the client is logged in and does not own the sender address.
      */
-    if (var_smtpd_sasl_enable && state->sasl_username != 0) {
-	reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, sender);
+    if (smtpd_sasl_is_active(state) && state->sasl_username != 0) {
+	reply = smtpd_resolve_addr(sender);
 	if (reply->flags & RESOLVE_FLAG_FAIL)
 	    reject_dict_retry(state, sender);
 	if ((owners = check_mail_addr_find(state, sender, smtpd_sender_login_maps,
@@ -3272,8 +3314,8 @@ static int reject_unauth_sender_login_mismatch(SMTPD_STATE *state, const char *s
      * Reject if the client is not logged in and the sender address has an
      * owner.
      */
-    if (var_smtpd_sasl_enable && state->sasl_username == 0) {
-	reply = (const RESOLVE_REPLY *) ctable_locate(smtpd_resolve_cache, sender);
+    if (smtpd_sasl_is_active(state) && state->sasl_username == 0) {
+	reply = smtpd_resolve_addr(sender);
 	if (reply->flags & RESOLVE_FLAG_FAIL)
 	    reject_dict_retry(state, sender);
 	if (check_mail_addr_find(state, sender, smtpd_sender_login_maps,
@@ -3365,13 +3407,13 @@ static int check_policy_service(SMTPD_STATE *state, const char *server,
 			  ATTR_TYPE_STR, MAIL_ATTR_STRESS, var_stress,
 #ifdef USE_SASL_AUTH
 			  ATTR_TYPE_STR, MAIL_ATTR_SASL_METHOD,
-			  var_smtpd_sasl_enable && state->sasl_method ?
+			  smtpd_sasl_is_active(state) && state->sasl_method ?
 			  state->sasl_method : "",
 			  ATTR_TYPE_STR, MAIL_ATTR_SASL_USERNAME,
-			  var_smtpd_sasl_enable && state->sasl_username ?
+		       smtpd_sasl_is_active(state) && state->sasl_username ?
 			  state->sasl_username : "",
 			  ATTR_TYPE_STR, MAIL_ATTR_SASL_SENDER,
-			  var_smtpd_sasl_enable && state->sasl_sender ?
+			  smtpd_sasl_is_active(state) && state->sasl_sender ?
 			  state->sasl_sender : "",
 #endif
 #ifdef USE_TLS
@@ -3502,8 +3544,8 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 
 	if (strchr(name, ':') != 0) {
 	    if (def_acl == NO_DEF_ACL) {
-		msg_warn("specify one of (%s, %s, %s, %s, %s) before %s restriction \"%s\"",
-			 CHECK_CLIENT_ACL, CHECK_HELO_ACL, CHECK_SENDER_ACL,
+		msg_warn("specify one of (%s, %s, %s, %s, %s, %s) before %s restriction \"%s\"",
+			 CHECK_CLIENT_ACL, CHECK_REVERSE_CLIENT_ACL, CHECK_HELO_ACL, CHECK_SENDER_ACL,
 			 CHECK_RECIP_ACL, CHECK_ETRN_ACL, reply_class, name);
 		longjmp(smtpd_check_buf,
 			smtpd_check_reject(state, MAIL_ERROR_SOFTWARE,
@@ -3552,10 +3594,10 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 		status = check_policy_service(state, *++cpp, reply_name,
 					      reply_class, def_acl);
 	} else if (strcasecmp(name, DEFER_IF_PERMIT) == 0) {
-	    DEFER_IF_PERMIT2(state, MAIL_ERROR_POLICY,
-			     450, "4.7.0",
+	    status = DEFER_IF_PERMIT2(DEFER_EXPLICIT, state, MAIL_ERROR_POLICY,
+				      450, "4.7.0",
 			     "<%s>: %s rejected: defer_if_permit requested",
-			     reply_name, reply_class);
+				      reply_name, reply_class);
 	} else if (strcasecmp(name, DEFER_IF_REJECT) == 0) {
 	    DEFER_IF_REJECT2(state, MAIL_ERROR_POLICY,
 			     450, "4.7.0",
@@ -3590,6 +3632,11 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    status = check_namadr_access(state, *cpp, state->name, state->addr,
 					 FULL, &found, state->namaddr,
 					 SMTPD_NAME_CLIENT, def_acl);
+	} else if (is_map_command(state, name, CHECK_REVERSE_CLIENT_ACL, &cpp)) {
+	    status = check_namadr_access(state, *cpp, state->reverse_name, state->addr,
+					 FULL, &found, state->namaddr,
+					 SMTPD_NAME_REV_CLIENT, def_acl);
+	    forbid_whitelist(state, name, status, state->reverse_name);
 	} else if (strcasecmp(name, REJECT_MAPS_RBL) == 0) {
 	    status = reject_maps_rbl(state);
 	} else if (strcasecmp(name, REJECT_RBL_CLIENT) == 0
@@ -3710,14 +3757,16 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    if (state->sender && *state->sender)
 		status = reject_unverified_address(state, state->sender,
 					   state->sender, SMTPD_NAME_SENDER,
-						   var_unv_from_code);
+				     var_unv_from_dcode, var_unv_from_rcode,
+						   unv_from_tf_act,
+						   var_unv_from_why);
 	} else if (strcasecmp(name, REJECT_NON_FQDN_SENDER) == 0) {
 	    if (state->sender && *state->sender)
 		status = reject_non_fqdn_address(state, state->sender,
 					  state->sender, SMTPD_NAME_SENDER);
 	} else if (strcasecmp(name, REJECT_AUTH_SENDER_LOGIN_MISMATCH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (var_smtpd_sasl_enable) {
+	    if (smtpd_sasl_is_active(state)) {
 		if (state->sender && *state->sender)
 		    status = reject_auth_sender_login_mismatch(state, state->sender);
 	    } else
@@ -3725,7 +3774,7 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 		msg_warn("restriction `%s' ignored: no SASL support", name);
 	} else if (strcasecmp(name, REJECT_UNAUTH_SENDER_LOGIN_MISMATCH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (var_smtpd_sasl_enable) {
+	    if (smtpd_sasl_is_active(state)) {
 		if (state->sender && *state->sender)
 		    status = reject_unauth_sender_login_mismatch(state, state->sender);
 	    } else
@@ -3786,7 +3835,7 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 			 cpp[1], CHECK_RELAY_DOMAINS);
 	} else if (strcasecmp(name, PERMIT_SASL_AUTH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (var_smtpd_sasl_enable)
+	    if (smtpd_sasl_is_active(state))
 		status = permit_sasl_auth(state,
 					  SMTPD_CHECK_OK, SMTPD_CHECK_DUNNO);
 #endif
@@ -3840,7 +3889,9 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    if (state->recipient && *state->recipient)
 		status = reject_unverified_address(state, state->recipient,
 				     state->recipient, SMTPD_NAME_RECIPIENT,
-						   var_unv_rcpt_code);
+				     var_unv_rcpt_dcode, var_unv_rcpt_rcode,
+						   unv_rcpt_tf_act,
+						   var_unv_rcpt_why);
 	}
 
 	/*
@@ -3908,8 +3959,7 @@ int     smtpd_check_addr(const char *addr)
      */
     if (addr == 0 || *addr == 0)
 	return (0);
-    resolve_reply = (const RESOLVE_REPLY *)
-	ctable_locate(smtpd_resolve_cache, addr);
+    resolve_reply = smtpd_resolve_addr(addr);
     if (resolve_reply->flags & RESOLVE_FLAG_ERROR)
 	return (-1);
     return (0);
@@ -3948,7 +3998,7 @@ void    smtpd_check_rewrite(SMTPD_STATE *state)
 		status = SMTPD_CHECK_OK;
 	} else if (strcasecmp(name, PERMIT_SASL_AUTH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (var_smtpd_sasl_enable)
+	    if (smtpd_sasl_is_active(state))
 		status = permit_sasl_auth(state, SMTPD_CHECK_OK,
 					  SMTPD_CHECK_DUNNO);
 #endif
@@ -4295,7 +4345,9 @@ static int check_recipient_rcpt_maps(SMTPD_STATE *state, const char *recipient)
 	return (0);
     if (state->recipient_rcptmap_checked == 1)
 	return (0);
-    state->recipient_rcptmap_checked = 1;
+    if (state->warn_if_reject == 0)
+	/* We really validate the recipient address. */
+	state->recipient_rcptmap_checked = 1;
     return (check_rcpt_maps(state, recipient, SMTPD_NAME_RECIPIENT));
 }
 
@@ -4312,7 +4364,9 @@ static int check_sender_rcpt_maps(SMTPD_STATE *state, const char *sender)
 	return (0);
     if (state->sender_rcptmap_checked == 1)
 	return (0);
-    state->sender_rcptmap_checked = 1;
+    if (state->warn_if_reject == 0)
+	/* We really validate the sender address. */
+	state->sender_rcptmap_checked = 1;
     return (check_rcpt_maps(state, sender, SMTPD_NAME_SENDER));
 }
 
@@ -4330,8 +4384,7 @@ static int check_rcpt_maps(SMTPD_STATE *state, const char *recipient,
     /*
      * Resolve the address.
      */
-    reply = (const RESOLVE_REPLY *)
-	ctable_locate(smtpd_resolve_cache, recipient);
+    reply = smtpd_resolve_addr(recipient);
     if (reply->flags & RESOLVE_FLAG_FAIL)
 	reject_dict_retry(state, recipient);
 
@@ -4696,6 +4749,13 @@ char   *var_verify_sender;
 char   *var_smtpd_sasl_opts;
 char   *var_local_rwr_clients;
 char   *var_smtpd_relay_ccerts;
+char   *var_unv_from_why;
+char   *var_unv_rcpt_why;
+char   *var_stress;
+char   *var_unk_name_tf_act;
+char   *var_unk_addr_tf_act;
+char   *var_unv_rcpt_tf_act;
+char   *var_unv_from_tf_act;
 
 typedef struct {
     char   *name;
@@ -4739,6 +4799,14 @@ static const STRING_TABLE string_table[] = {
     VAR_SMTPD_SASL_OPTS, DEF_SMTPD_SASL_OPTS, &var_smtpd_sasl_opts,
     VAR_LOC_RWR_CLIENTS, DEF_LOC_RWR_CLIENTS, &var_local_rwr_clients,
     VAR_RELAY_CCERTS, DEF_RELAY_CCERTS, &var_smtpd_relay_ccerts,
+    VAR_UNV_FROM_WHY, DEF_UNV_FROM_WHY, &var_unv_from_why,
+    VAR_UNV_RCPT_WHY, DEF_UNV_RCPT_WHY, &var_unv_rcpt_why,
+    VAR_STRESS, DEF_STRESS, &var_stress,
+    /* XXX Can't use ``$name'' type default values below. */
+    VAR_UNK_NAME_TF_ACT, DEF_REJECT_TMPF_ACT, &var_unk_name_tf_act,
+    VAR_UNK_ADDR_TF_ACT, DEF_REJECT_TMPF_ACT, &var_unk_addr_tf_act,
+    VAR_UNV_RCPT_TF_ACT, DEF_REJECT_TMPF_ACT, &var_unv_rcpt_tf_act,
+    VAR_UNV_FROM_TF_ACT, DEF_REJECT_TMPF_ACT, &var_unv_from_tf_act,
     0,
 };
 
@@ -4746,7 +4814,7 @@ static const STRING_TABLE string_table[] = {
 
 static void string_init(void)
 {
-    STRING_TABLE *sp;
+    const STRING_TABLE *sp;
 
     for (sp = string_table; sp->name; sp++)
 	sp->target[0] = mystrdup(sp->defval);
@@ -4756,7 +4824,7 @@ static void string_init(void)
 
 static int string_update(char **argv)
 {
-    STRING_TABLE *sp;
+    const STRING_TABLE *sp;
 
     for (sp = string_table; sp->name; sp++) {
 	if (strcasecmp(argv[0], sp->name) == 0) {
@@ -4784,15 +4852,18 @@ int     var_unk_name_code;
 int     var_unk_addr_code;
 int     var_relay_code;
 int     var_maps_rbl_code;
-int     var_access_map_code;
+int     var_map_reject_code;
+int     var_map_defer_code;
 int     var_reject_code;
 int     var_defer_code;
 int     var_non_fqdn_code;
 int     var_smtpd_delay_reject;
 int     var_allow_untrust_route;
 int     var_mul_rcpt_code;
-int     var_unv_from_code;
-int     var_unv_rcpt_code;
+int     var_unv_from_rcode;
+int     var_unv_from_dcode;
+int     var_unv_rcpt_rcode;
+int     var_unv_rcpt_dcode;
 int     var_local_rcpt_code;
 int     var_relay_rcpt_code;
 int     var_virt_mailbox_code;
@@ -4807,6 +4878,7 @@ int     var_smtpd_rej_unl_from;
 int     var_smtpd_rej_unl_rcpt;
 int     var_plaintext_code;
 bool    var_smtpd_peername_lookup;
+bool    var_smtpd_client_port_log;
 
 static const INT_TABLE int_table[] = {
     "msg_verbose", 0, &msg_verbose,
@@ -4816,15 +4888,18 @@ static const INT_TABLE int_table[] = {
     VAR_UNK_ADDR_CODE, DEF_UNK_ADDR_CODE, &var_unk_addr_code,
     VAR_RELAY_CODE, DEF_RELAY_CODE, &var_relay_code,
     VAR_MAPS_RBL_CODE, DEF_MAPS_RBL_CODE, &var_maps_rbl_code,
-    VAR_ACCESS_MAP_CODE, DEF_ACCESS_MAP_CODE, &var_access_map_code,
+    VAR_MAP_REJECT_CODE, DEF_MAP_REJECT_CODE, &var_map_reject_code,
+    VAR_MAP_DEFER_CODE, DEF_MAP_DEFER_CODE, &var_map_defer_code,
     VAR_REJECT_CODE, DEF_REJECT_CODE, &var_reject_code,
     VAR_DEFER_CODE, DEF_DEFER_CODE, &var_defer_code,
     VAR_NON_FQDN_CODE, DEF_NON_FQDN_CODE, &var_non_fqdn_code,
     VAR_SMTPD_DELAY_REJECT, DEF_SMTPD_DELAY_REJECT, &var_smtpd_delay_reject,
     VAR_ALLOW_UNTRUST_ROUTE, DEF_ALLOW_UNTRUST_ROUTE, &var_allow_untrust_route,
     VAR_MUL_RCPT_CODE, DEF_MUL_RCPT_CODE, &var_mul_rcpt_code,
-    VAR_UNV_FROM_CODE, DEF_UNV_FROM_CODE, &var_unv_from_code,
-    VAR_UNV_RCPT_CODE, DEF_UNV_RCPT_CODE, &var_unv_rcpt_code,
+    VAR_UNV_FROM_RCODE, DEF_UNV_FROM_RCODE, &var_unv_from_rcode,
+    VAR_UNV_FROM_DCODE, DEF_UNV_FROM_DCODE, &var_unv_from_dcode,
+    VAR_UNV_RCPT_RCODE, DEF_UNV_RCPT_RCODE, &var_unv_rcpt_rcode,
+    VAR_UNV_RCPT_DCODE, DEF_UNV_RCPT_DCODE, &var_unv_rcpt_dcode,
     VAR_LOCAL_RCPT_CODE, DEF_LOCAL_RCPT_CODE, &var_local_rcpt_code,
     VAR_RELAY_RCPT_CODE, DEF_RELAY_RCPT_CODE, &var_relay_rcpt_code,
     VAR_VIRT_ALIAS_CODE, DEF_VIRT_ALIAS_CODE, &var_virt_alias_code,
@@ -4835,6 +4910,7 @@ static const INT_TABLE int_table[] = {
     VAR_SMTPD_REJ_UNL_RCPT, DEF_SMTPD_REJ_UNL_RCPT, &var_smtpd_rej_unl_rcpt,
     VAR_PLAINTEXT_CODE, DEF_PLAINTEXT_CODE, &var_plaintext_code,
     VAR_SMTPD_PEERNAME_LOOKUP, DEF_SMTPD_PEERNAME_LOOKUP, &var_smtpd_peername_lookup,
+    VAR_SMTPD_CLIENT_PORT_LOG, DEF_SMTPD_CLIENT_PORT_LOG, &var_smtpd_client_port_log,
     0,
 };
 
@@ -4842,7 +4918,7 @@ static const INT_TABLE int_table[] = {
 
 static void int_init(void)
 {
-    INT_TABLE *sp;
+    const INT_TABLE *sp;
 
     for (sp = int_table; sp->name; sp++)
 	sp->target[0] = sp->defval;
@@ -4852,7 +4928,7 @@ static void int_init(void)
 
 static int int_update(char **argv)
 {
-    INT_TABLE *ip;
+    const INT_TABLE *ip;
 
     for (ip = int_table; ip->name; ip++) {
 	if (strcasecmp(argv[0], ip->name) == 0) {
@@ -4886,7 +4962,7 @@ static const REST_TABLE rest_table[] = {
 
 static int rest_update(char **argv)
 {
-    REST_TABLE *rp;
+    const REST_TABLE *rp;
 
     for (rp = rest_table; rp->name; rp++) {
 	if (strcasecmp(rp->name, argv[0]) == 0) {
@@ -4939,19 +5015,19 @@ bool    var_smtpd_sasl_enable = 0;
 
 #ifdef USE_SASL_AUTH
 
-/* smtpd_sasl_connect - stub */
+/* smtpd_sasl_activate - stub */
 
-void    smtpd_sasl_connect(SMTPD_STATE *state, const char *opts_name,
-			           const char *opts_var)
+void    smtpd_sasl_activate(SMTPD_STATE *state, const char *opts_name,
+			            const char *opts_var)
 {
-    msg_panic("smtpd_sasl_connect was called");
+    msg_panic("smtpd_sasl_activate was called");
 }
 
-/* smtpd_sasl_disconnect - stub */
+/* smtpd_sasl_deactivate - stub */
 
-void    smtpd_sasl_disconnect(SMTPD_STATE *state)
+void    smtpd_sasl_deactivate(SMTPD_STATE *state)
 {
-    msg_panic("smtpd_sasl_disconnect was called");
+    msg_panic("smtpd_sasl_deactivate was called");
 }
 
 /* permit_sasl_auth - stub */

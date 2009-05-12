@@ -7,9 +7,7 @@
 	VAR_LMTP_SASL_PATH, DEF_LMTP_SASL_PATH, &var_smtp_sasl_path, 0, 0,
 #ifdef USE_TLS
 	VAR_LMTP_SASL_TLS_OPTS, DEF_LMTP_SASL_TLS_OPTS, &var_smtp_sasl_tls_opts, 0, 0,
-#ifdef SNAPSHOT				/* XXX: Not yet */
 	VAR_LMTP_SASL_TLSV_OPTS, DEF_LMTP_SASL_TLSV_OPTS, &var_smtp_sasl_tlsv_opts, 0, 0,
-#endif
 	VAR_LMTP_TLS_CERT_FILE, DEF_LMTP_TLS_CERT_FILE, &var_smtp_tls_cert_file, 0, 0,
 	VAR_LMTP_TLS_KEY_FILE, DEF_LMTP_TLS_KEY_FILE, &var_smtp_tls_key_file, 0, 0,
 	VAR_LMTP_TLS_DCERT_FILE, DEF_LMTP_TLS_DCERT_FILE, &var_smtp_tls_dcert_file, 0, 0,
@@ -24,6 +22,10 @@
 	VAR_LMTP_TLS_SEC_CMATCH, DEF_LMTP_TLS_SEC_CMATCH, &var_smtp_tls_sec_cmatch, 1, 0,
 	VAR_LMTP_TLS_FPT_CMATCH, DEF_LMTP_TLS_FPT_CMATCH, &var_smtp_tls_fpt_cmatch, 0, 0,
 	VAR_LMTP_TLS_FPT_DGST, DEF_LMTP_TLS_FPT_DGST, &var_smtp_tls_fpt_dgst, 1, 0,
+	VAR_LMTP_TLS_PROTO, DEF_LMTP_TLS_PROTO, &var_smtp_tls_proto, 0, 0,
+	VAR_LMTP_TLS_CIPH, DEF_LMTP_TLS_CIPH, &var_smtp_tls_ciph, 1, 0,
+	VAR_LMTP_TLS_ECCERT_FILE, DEF_LMTP_TLS_ECCERT_FILE, &var_smtp_tls_eccert_file, 0, 0,
+	VAR_LMTP_TLS_ECKEY_FILE, DEF_LMTP_TLS_ECKEY_FILE, &var_smtp_tls_eckey_file, 0, 0,
 #endif
 	VAR_LMTP_SASL_MECHS, DEF_LMTP_SASL_MECHS, &var_smtp_sasl_mechs, 0, 0,
 	VAR_LMTP_SASL_TYPE, DEF_LMTP_SASL_TYPE, &var_smtp_sasl_type, 1, 0,
@@ -85,7 +87,7 @@
     };
     static const CONFIG_BOOL_TABLE lmtp_bool_table[] = {
 	VAR_LMTP_SKIP_5XX, DEF_LMTP_SKIP_5XX, &var_smtp_skip_5xx_greeting,
-	VAR_SKIP_QUIT_RESP, DEF_SKIP_QUIT_RESP, &var_skip_quit_resp,
+	VAR_LMTP_SKIP_QUIT_RESP, DEF_LMTP_SKIP_QUIT_RESP, &var_skip_quit_resp,
 	VAR_LMTP_SASL_ENABLE, DEF_LMTP_SASL_ENABLE, &var_smtp_sasl_enable,
 	VAR_LMTP_RAND_ADDR, DEF_LMTP_RAND_ADDR, &var_smtp_rand_addr,
 	VAR_LMTP_QUOTE_821_ENV, DEF_LMTP_QUOTE_821_ENV, &var_smtp_quote_821_env,
@@ -101,5 +103,6 @@
 	VAR_LMTP_SENDER_AUTH, DEF_LMTP_SENDER_AUTH, &var_smtp_sender_auth,
 	VAR_LMTP_CNAME_OVERR, DEF_LMTP_CNAME_OVERR, &var_smtp_cname_overr,
 	VAR_LMTP_SASL_AUTH_SOFT_BOUNCE, DEF_LMTP_SASL_AUTH_SOFT_BOUNCE, &var_smtp_sasl_auth_soft_bounce,
+	VAR_LMTP_ASSUME_FINAL, DEF_LMTP_ASSUME_FINAL, &var_lmtp_assume_final,
 	0,
     };

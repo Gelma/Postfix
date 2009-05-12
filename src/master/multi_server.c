@@ -68,6 +68,11 @@
 /*	order as specified, and multiple instances of the same type
 /*	are allowed. Raw parameters are not subjected to $name
 /*	evaluation.
+/* .IP "MAIL_SERVER_NINT_TABLE (CONFIG_NINT_TABLE *)"
+/*	A table with configurable parameters, to be loaded from the
+/*	global Postfix configuration file. Tables are loaded in the
+/*	order as specified, and multiple instances of the same type
+/*	are allowed.
 /* .IP "MAIL_SERVER_PRE_INIT (void *(char *service_name, char **argv))"
 /*	A pointer to a function that is called once
 /*	by the skeleton after it has read the global configuration file
@@ -506,6 +511,7 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
     int     alone = 0;
     int     zerolimit = 0;
     WATCHDOG *watchdog;
+    char   *oname;
     char   *oval;
     char   *generation;
     int     msg_vstream_needed = 0;
@@ -586,10 +592,11 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
 	    break;
 	case 'o':
 	    /* XXX Use split_nameval() */
-	    if ((oval = split_at(optarg, '=')) == 0)
+	    oname = mystrdup(optarg);
+	    if ((oval = split_at(oname, '=')) == 0)
 		oval = "";
-	    mail_conf_update(optarg, oval);
-	    if (strcmp(optarg, VAR_SYSLOG_NAME) == 0)
+	    mail_conf_update(oname, oval);
+	    if (strcmp(oname, VAR_SYSLOG_NAME) == 0)
 		redo_syslog_init = 1;
 	    break;
 	case 's':
@@ -656,6 +663,9 @@ NORETURN multi_server_main(int argc, char **argv, MULTI_SERVER_FN service,...)
 	    break;
 	case MAIL_SERVER_RAW_TABLE:
 	    get_mail_conf_raw_table(va_arg(ap, CONFIG_RAW_TABLE *));
+	    break;
+	case MAIL_SERVER_NINT_TABLE:
+	    get_mail_conf_nint_table(va_arg(ap, CONFIG_NINT_TABLE *));
 	    break;
 	case MAIL_SERVER_PRE_INIT:
 	    pre_init = va_arg(ap, MAIL_SERVER_INIT_FN);

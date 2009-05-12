@@ -320,10 +320,6 @@ or to the alias \fIname\fR, to the destinations listed in
 ~\fIname\fR/.\fBforward\fR+\fIfoo\fR or in ~\fIname\fR/.\fBforward\fR,
 to the mailbox owned by the user \fIname\fR, or it is sent back as
 undeliverable.
-
-In all cases the \fBlocal\fR(8) daemon prepends an optional
-`\fBDelivered-To:\fR header line with the final recipient
-address.
 .SH "DELIVERY RIGHTS"
 .na
 .nf
@@ -415,6 +411,10 @@ Update the \fBlocal\fR(8) delivery agent's idea of the Delivered-To:
 address (see prepend_delivered_header) only once, at the start of
 a delivery attempt; do not update the Delivered-To: address while
 expanding aliases or .forward files.
+.PP
+Available in Postfix version 2.5.3 and later:
+.IP "\fBstrict_mailbox_ownership (yes)\fR"
+Defer delivery when a mailbox file is not owned by its recipient.
 .SH "DELIVERY METHOD CONTROLS"
 .na
 .nf
@@ -513,7 +513,7 @@ Restrict \fBlocal\fR(8) mail delivery to external commands.
 Restrict \fBlocal\fR(8) mail delivery to external files.
 .IP "\fBcommand_expansion_filter (see 'postconf -d' output)\fR"
 Restrict the characters that the \fBlocal\fR(8) delivery agent allows in
-$name expansions of $mailbox_command.
+$name expansions of $mailbox_command and $command_execution_directory.
 .IP "\fBdefault_privs (nobody)\fR"
 The default rights used by the \fBlocal\fR(8) delivery agent for delivery
 to external file or command.
@@ -525,6 +525,10 @@ Available in Postfix version 2.2 and later:
 .IP "\fBexecution_directory_expansion_filter (see 'postconf -d' output)\fR"
 Restrict the characters that the \fBlocal\fR(8) delivery agent allows
 in $name expansions of $command_execution_directory.
+.PP
+Available in Postfix version 2.5.3 and later:
+.IP "\fBstrict_mailbox_ownership (yes)\fR"
+Defer delivery when a mailbox file is not owned by its recipient.
 .SH "MISCELLANEOUS CONTROLS"
 .na
 .nf
@@ -573,7 +577,7 @@ Whether or not a \fBlocal\fR(8) recipient's home directory must exist
 before mail delivery is attempted.
 .IP "\fBsyslog_facility (mail)\fR"
 The syslog facility of Postfix logging.
-.IP "\fBsyslog_name (postfix)\fR"
+.IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 The mail system name that is prepended to the process name in syslog
 records, so that "smtpd" becomes, for example, "postfix/smtpd".
 .SH "FILES"

@@ -8,7 +8,7 @@
 /*
 /*	void    smtpd_sasl_initialize()
 /*
-/*	void	smtpd_sasl_connect(state, sasl_opts_name, sasl_opts_val)
+/*	void	smtpd_sasl_activate(state, sasl_opts_name, sasl_opts_val)
 /*	SMTPD_STATE *state;
 /*	const char *sasl_opts_name;
 /*	const char *sasl_opts_val;
@@ -21,7 +21,13 @@
 /*	void	smtpd_sasl_logout(state)
 /*	SMTPD_STATE *state;
 /*
-/*	void	smtpd_sasl_disconnect(state)
+/*	void	smtpd_sasl_deactivate(state)
+/*	SMTPD_STATE *state;
+/*
+/*	int	smtpd_sasl_is_active(state)
+/*	SMTPD_STATE *state;
+/*
+/*	int	smtpd_sasl_set_inactive(state)
 /*	SMTPD_STATE *state;
 /* DESCRIPTION
 /*	This module encapsulates most of the detail specific to SASL
@@ -32,7 +38,7 @@
 /*	need access to the file system for run-time loading of
 /*	plug-in modules. There is no corresponding cleanup routine.
 /*
-/*	smtpd_sasl_connect() performs per-connection initialization.
+/*	smtpd_sasl_activate() performs per-connection initialization.
 /*	This routine should be called once at the start of every
 /*	connection. The sasl_opts_name and sasl_opts_val parameters
 /*	are the postfix configuration parameters setting the security
@@ -54,8 +60,15 @@
 /*	smtpd_sasl_logout() cleans up after smtpd_sasl_authenticate().
 /*	This routine exists for the sake of symmetry.
 /*
-/*	smtpd_sasl_disconnect() performs per-connection cleanup.
+/*	smtpd_sasl_deactivate() performs per-connection cleanup.
 /*	This routine should be called at the end of every connection.
+/*
+/*	smtpd_sasl_is_active() is a predicate that returns true
+/*	if the SMTP server session state is between smtpd_sasl_activate()
+/*	and smtpd_sasl_deactivate().
+/*
+/*	smtpd_sasl_set_inactive() initializes the SMTP session
+/*	state before the first smtpd_sasl_activate() call.
 /*
 /*	Arguments:
 /* .IP state
@@ -145,12 +158,20 @@ void    smtpd_sasl_initialize(void)
 
 }
 
-/* smtpd_sasl_connect - per-connection initialization */
+/* smtpd_sasl_activate - per-connection initialization */
 
-void    smtpd_sasl_connect(SMTPD_STATE *state, const char *sasl_opts_name,
-			           const char *sasl_opts_val)
+void    smtpd_sasl_activate(SMTPD_STATE *state, const char *sasl_opts_name,
+			            const char *sasl_opts_val)
 {
     const char *mechanism_list;
+    XSASL_SERVER_CREATE_ARGS create_args;
+    int     tls_flag;
+
+    /*
+     * Sanity check.
+     */
+    if (smtpd_sasl_is_active(state))
+	msg_panic("smtpd_sasl_activate: already active");
 
     /*
      * Initialize SASL-specific state variables. Use long-lived storage for
@@ -168,12 +189,24 @@ void    smtpd_sasl_connect(SMTPD_STATE *state, const char *sasl_opts_name,
      * Set up a new server context for this connection.
      */
 #define SMTPD_SASL_SERVICE "smtp"
+#ifdef USE_TLS
+    tls_flag = state->tls_context != 0;
+#else
+    tls_flag = 0;
+#endif
+#define ADDR_OR_EMPTY(addr, unknown) (strcmp(addr, unknown) ? addr : "")
+#define REALM_OR_NULL(realm) (*(realm) ? (realm) : (char *) 0)
 
     if ((state->sasl_server =
-	 xsasl_server_create(smtpd_sasl_impl, state->client,
-			     SMTPD_SASL_SERVICE, *var_smtpd_sasl_realm ?
-			     var_smtpd_sasl_realm : (char *) 0,
-			     sasl_opts_val)) == 0)
+	 XSASL_SERVER_CREATE(smtpd_sasl_impl, &create_args,
+			     stream = state->client,
+			     server_addr = "",	/* need smtpd_peer.c update */
+			     client_addr = ADDR_OR_EMPTY(state->addr,
+						       CLIENT_ADDR_UNKNOWN),
+			     service = SMTPD_SASL_SERVICE,
+			     user_realm = REALM_OR_NULL(var_smtpd_sasl_realm),
+			     security_options = sasl_opts_val,
+			     tls_flag = tls_flag)) == 0)
 	msg_fatal("SASL per-connection initialization failed");
 
     /*
@@ -185,9 +218,9 @@ void    smtpd_sasl_connect(SMTPD_STATE *state, const char *sasl_opts_name,
     state->sasl_mechanism_list = mystrdup(mechanism_list);
 }
 
-/* smtpd_sasl_disconnect - per-connection cleanup */
+/* smtpd_sasl_deactivate - per-connection cleanup */
 
-void    smtpd_sasl_disconnect(SMTPD_STATE *state)
+void    smtpd_sasl_deactivate(SMTPD_STATE *state)
 {
     if (state->sasl_reply) {
 	vstring_free(state->sasl_reply);

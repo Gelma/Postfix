@@ -407,7 +407,7 @@ void    smtp_chat_notify(SMTP_SESSION *session)
 
     notice = post_mail_fopen_nowait(mail_addr_double_bounce(),
 				    var_error_rcpt,
-				    INT_FILT_NOTIFY,
+				    INT_FILT_MASK_NOTIFY,
 				    NULL_TRACE_FLAGS, NO_QUEUE_ID);
     if (notice == 0) {
 	msg_warn("postmaster notify: %m");
@@ -431,5 +431,7 @@ void    smtp_chat_notify(SMTP_SESSION *session)
     for (cpp = session->history->argv; *cpp; cpp++)
 	line_wrap(printable(*cpp, '?'), LENGTH, INDENT, print_line,
 		  (char *) notice);
+    post_mail_fputs(notice, "");
+    post_mail_fprintf(notice, "For other details, see the local mail logfile");
     (void) post_mail_fclose(notice);
 }

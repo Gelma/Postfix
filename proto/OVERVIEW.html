@@ -21,7 +21,7 @@ Architecture Overview </h1>
 <h2> Introduction </h2>
 
 <p> This document presents an overview of the Postfix architecture,
-and is the place where you find a pointer to every Postfix command
+and provides pointers to descriptions of every Postfix command
 or server program.  The text gives the general context in which
 each command or server program is used, and provides pointers to
 documents with specific usage examples and background information.
@@ -173,7 +173,8 @@ notifications about problems with Postfix.  </p>
 
 <li> <p> The cleanup(8) server implements the final processing
 stage before mail is queued. It adds missing From: and other message
-headers, transforms addresses as described in the ADDRESS_REWRITING_README
+headers, and transforms addresses as described in the
+ADDRESS_REWRITING_README
 document. Optionally, the cleanup(8) server can be configured to
 do light-weight content inspection with regular expressions as
 described in the BUILTIN_FILTER_README document.  The  cleanup(8)
@@ -726,6 +727,11 @@ for shell scripts. </p>
 <li> <p> The postmap(1) command maintains Postfix lookup tables
 such as canonical(5), virtual(5) and others. It is a cousin of the
 UNIX makemap command. </p>
+
+<li> <p> The postmulti(1) command repeats the "postfix start" etc.
+command for each Postfix instance, and supports creation, deletion
+etc. of Postfix instances. For a tutorial, see MULTI_INSTANCE_README.
+</p>
 
 <li> <p> The postqueue(1) command is the privileged command that
 is run by Postfix sendmail(1) and mailq(1) in order to flush or

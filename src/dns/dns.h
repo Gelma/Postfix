@@ -179,7 +179,7 @@ extern int dns_lookup_v(const char *, unsigned, DNS_RR **, VSTRING *,
 #define DNS_OK		0		/* query succeeded */
 
  /*
-  * How long can a DNS name be?
+  * How long can a DNS name or single text value be?
   */
 #define DNS_NAME_LEN	1024
 

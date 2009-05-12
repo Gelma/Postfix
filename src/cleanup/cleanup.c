@@ -77,6 +77,11 @@
 /*	sender address (this feature is removed with Postfix version 2.2, is
 /*	turned off by default with Postfix version 2.1, and is always turned on
 /*	with older Postfix versions).
+/* .PP
+/*	Available in Postfix version 2.6 and later:
+/* .IP "\fBalways_add_missing_headers (no)\fR"
+/*	Always add (Resent-) From:, To:, Date: or Message-ID: headers
+/*	when not present.
 /* BUILT-IN CONTENT FILTERING CONTROLS
 /* .ad
 /* .fi
@@ -119,9 +124,10 @@
 /* .IP "\fBnon_smtpd_milters (empty)\fR"
 /*	A list of Milter (mail filter) applications for new mail that
 /*	does not arrive via the Postfix \fBsmtpd\fR(8) server.
-/* .IP "\fBmilter_protocol (2)\fR"
+/* .IP "\fBmilter_protocol (6)\fR"
 /*	The mail filter protocol version and optional protocol extensions
-/*	for communication with a Milter (mail filter) application.
+/*	for communication with a Milter application; prior to Postfix 2.6
+/*	the default protocol is 2.
 /* .IP "\fBmilter_default_action (tempfail)\fR"
 /*	The default action when a Milter (mail filter) application is
 /*	unavailable or mis-configured.
@@ -138,30 +144,30 @@
 /* .IP "\fBmilter_content_timeout (300s)\fR"
 /*	The time limit for sending message content to a Milter (mail
 /*	filter) application, and for receiving the response.
-/* .IP "\fBmilter_connect_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_connect_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after completion of an SMTP connection.
-/* .IP "\fBmilter_helo_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_helo_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the SMTP HELO or EHLO command.
-/* .IP "\fBmilter_mail_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_mail_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the SMTP MAIL FROM command.
-/* .IP "\fBmilter_rcpt_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_rcpt_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the SMTP RCPT TO command.
-/* .IP "\fBmilter_data_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_data_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to version 4 or higher Milter (mail
 /*	filter) applications after the SMTP DATA command.
-/* .IP "\fBmilter_unknown_command_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_unknown_command_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to version 3 or higher Milter (mail
 /*	filter) applications after an unknown SMTP command.
-/* .IP "\fBmilter_end_of_data_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_end_of_data_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the message end-of-data.
 /* .PP
 /*	Available in Postfix version 2.5 and later:
-/* .IP "\fBmilter_end_of_header_macros (see postconf -n output)\fR"
+/* .IP "\fBmilter_end_of_header_macros (see 'postconf -d' output)\fR"
 /*	The macros that are sent to Milter (mail filter) applications
 /*	after the end of the message header.
 /* MIME PROCESSING CONTROLS
@@ -335,7 +341,7 @@
 /*	the sender.
 /* .IP "\fBsyslog_facility (mail)\fR"
 /*	The syslog facility of Postfix logging.
-/* .IP "\fBsyslog_name (postfix)\fR"
+/* .IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 /*	The mail system name that is prepended to the process name in syslog
 /*	records, so that "smtpd" becomes, for example, "postfix/smtpd".
 /* .PP
@@ -491,8 +497,10 @@ static void cleanup_service(VSTREAM *src, char *unused_service, char **argv)
     status = cleanup_flush(state);		/* in case state is modified */
     attr_print(src, ATTR_FLAG_NONE,
 	       ATTR_TYPE_INT, MAIL_ATTR_STATUS, status,
-	       ATTR_TYPE_STR, MAIL_ATTR_WHY, state->reason ?
-	       state->reason : "",
+	       ATTR_TYPE_STR, MAIL_ATTR_WHY,
+	       (state->flags & CLEANUP_FLAG_SMTP_REPLY)
+	       && state->smtp_reply ? state->smtp_reply :
+	       state->reason ? state->reason : "",
 	       ATTR_TYPE_END);
     cleanup_free(state);
 

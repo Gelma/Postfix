@@ -50,6 +50,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef STRCASECMP_IN_STRINGS_H
+#include <strings.h>
+#endif
+
 /* Utility library. */
 
 #include <msg.h>
@@ -60,6 +64,8 @@
 #include <vstream.h>
 #include <vstring_vstream.h>
 #include <name_mask.h>
+#include <argv.h>
+#include <myaddrinfo.h>
 
 /* Global library. */
 
@@ -155,7 +161,11 @@ typedef struct {
     char   *username;			/* authenticated user */
     VSTRING *sasl_line;
     unsigned int sec_props;		/* Postfix mechanism filter */
+    int     tls_flag;			/* TLS enabled in this session */
     char   *mechanism_list;		/* filtered mechanism list */
+    ARGV   *mechanism_argv;		/* ditto */
+    char   *client_addr;		/* remote IP address */
+    char   *server_addr;		/* remote IP address */
 } XSASL_DOVECOT_SERVER;
 
  /*
@@ -163,10 +173,7 @@ typedef struct {
   */
 static void xsasl_dovecot_server_done(XSASL_SERVER_IMPL *);
 static XSASL_SERVER *xsasl_dovecot_server_create(XSASL_SERVER_IMPL *,
-						         VSTREAM *,
-						         const char *,
-						         const char *,
-						         const char *);
+					        XSASL_SERVER_CREATE_ARGS *);
 static void xsasl_dovecot_server_free(XSASL_SERVER *);
 static int xsasl_dovecot_server_first(XSASL_SERVER *, const char *,
 				              const char *, VSTRING *);
@@ -208,7 +215,8 @@ static void xsasl_dovecot_server_mech_free(XSASL_DCSRV_MECH *mech_list)
 
 /* xsasl_dovecot_server_mech_filter - filter server mechanism list */
 
-static char *xsasl_dovecot_server_mech_filter(XSASL_DCSRV_MECH *mechanism_list,
+static char *xsasl_dovecot_server_mech_filter(ARGV *mechanism_argv,
+				           XSASL_DCSRV_MECH *mechanism_list,
 					            unsigned int conf_props)
 {
     const char *myname = "xsasl_dovecot_server_mech_filter";
@@ -226,6 +234,7 @@ static char *xsasl_dovecot_server_mech_filter(XSASL_DCSRV_MECH *mechanism_list,
 	    if (VSTRING_LEN(mechanisms_str) > 0)
 		VSTRING_ADDCH(mechanisms_str, ' ');
 	    vstring_strcat(mechanisms_str, mp->mech_name);
+	    argv_add(mechanism_argv, mp->mech_name, (char *) 0);
 	    if (msg_verbose)
 		msg_info("%s: keep mechanism: %s", myname, mp->mech_name);
 	} else {
@@ -247,11 +256,23 @@ static int xsasl_dovecot_server_connect(XSASL_DOVECOT_SERVER_IMPL *xp)
     unsigned int major_version, minor_version;
     int     fd, success;
     int     sec_props;
+    const char *path;
 
     if (msg_verbose)
 	msg_info("%s: Connecting", myname);
 
-    if ((fd = unix_connect(xp->socket_path, BLOCKING, AUTH_TIMEOUT)) < 0) {
+    /*
+     * Not documented, but necessary for testing.
+     */
+    path = xp->socket_path;
+    if (strncmp(path, "inet:", 5) == 0) {
+	fd = inet_connect(path + 5, BLOCKING, AUTH_TIMEOUT);
+    } else {
+	if (strncmp(path, "unix:", 5) == 0)
+	    path += 5;
+	fd = unix_connect(path, BLOCKING, AUTH_TIMEOUT);
+    }
+    if (fd < 0) {
 	msg_warn("SASL: Connect to %s failed: %m", xp->socket_path);
 	return (-1);
     }
@@ -261,6 +282,7 @@ static int xsasl_dovecot_server_connect(XSASL_DOVECOT_SERVER_IMPL *xp)
 		    VSTREAM_CTL_TIMEOUT, AUTH_TIMEOUT,
 		    VSTREAM_CTL_END);
 
+    /* XXX Encapsulate for logging. */
     vstream_fprintf(sasl_stream,
 		    "VERSION\t%u\t%u\n"
 		    "CPID\t%u\n",
@@ -273,6 +295,7 @@ static int xsasl_dovecot_server_connect(XSASL_DOVECOT_SERVER_IMPL *xp)
     }
     success = 0;
     line_str = vstring_alloc(256);
+    /* XXX Encapsulate for logging. */
     while (vstring_get_nonl(line_str, sasl_stream) != VSTREAM_EOF) {
 	line = vstring_str(line_str);
 
@@ -371,17 +394,19 @@ static void xsasl_dovecot_server_done(XSASL_SERVER_IMPL *impl)
 /* xsasl_dovecot_server_create - create server instance */
 
 static XSASL_SERVER *xsasl_dovecot_server_create(XSASL_SERVER_IMPL *impl,
-					             VSTREAM *unused_stream,
-						         const char *service,
-						         const char *realm,
-					              const char *sec_props)
+				             XSASL_SERVER_CREATE_ARGS *args)
 {
     const char *myname = "xsasl_dovecot_server_create";
     XSASL_DOVECOT_SERVER *server;
+    struct sockaddr_storage ss;
+    struct sockaddr *sa = (struct sockaddr *) & ss;
+    SOCKADDR_SIZE salen;
+    MAI_HOSTADDR_STR server_addr;
 
     if (msg_verbose)
 	msg_info("%s: SASL service=%s, realm=%s",
-		 myname, service, realm ? realm : "(null)");
+		 myname, args->service, args->user_realm ?
+		 args->user_realm : "(null)");
 
     /*
      * Extend the XSASL_SERVER_IMPL object with our own data. We use
@@ -397,12 +422,29 @@ static XSASL_SERVER *xsasl_dovecot_server_create(XSASL_SERVER_IMPL *impl,
     server->impl = (XSASL_DOVECOT_SERVER_IMPL *) impl;
     server->sasl_line = vstring_alloc(256);
     server->username = 0;
-    server->service = mystrdup(service);
+    server->service = mystrdup(args->service);
     server->last_request_id = 0;
     server->mechanism_list = 0;
+    server->mechanism_argv = 0;
+    server->tls_flag = args->tls_flag;
     server->sec_props =
 	name_mask_opt(myname, xsasl_dovecot_conf_sec_props,
-		      sec_props, NAME_MASK_ANY_CASE | NAME_MASK_FATAL);
+		      args->security_options,
+		      NAME_MASK_ANY_CASE | NAME_MASK_FATAL);
+    server->client_addr = mystrdup(args->client_addr);
+
+    /*
+     * XXX Temporary code until smtpd_peer.c is updated.
+     */
+    if (args->server_addr && *args->server_addr) {
+	server->server_addr = mystrdup(args->server_addr);
+    } else {
+	salen = sizeof(ss);
+	if (getsockname(vstream_fileno(args->stream), sa, &salen) < 0
+	    || sockaddr_to_hostaddr(sa, salen, &server_addr, 0, 0) != 0)
+	    server_addr.buf[0] = 0;
+	server->server_addr = mystrdup(server_addr.buf);
+    }
 
     return (&server->xsasl);
 }
@@ -417,10 +459,13 @@ static const char *xsasl_dovecot_server_get_mechanism_list(XSASL_SERVER *xp)
 	if (xsasl_dovecot_server_connect(server->impl) < 0)
 	    return (0);
     }
-    if (server->mechanism_list == 0)
+    if (server->mechanism_list == 0) {
+	server->mechanism_argv = argv_alloc(2);
 	server->mechanism_list =
-	    xsasl_dovecot_server_mech_filter(server->impl->mechanism_list,
+	    xsasl_dovecot_server_mech_filter(server->mechanism_argv,
+					     server->impl->mechanism_list,
 					     server->sec_props);
+    }
     return (server->mechanism_list[0] ? server->mechanism_list : 0);
 }
 
@@ -433,9 +478,13 @@ static void xsasl_dovecot_server_free(XSASL_SERVER *xp)
     vstring_free(server->sasl_line);
     if (server->username)
 	myfree(server->username);
-    if (server->mechanism_list)
+    if (server->mechanism_list) {
 	myfree(server->mechanism_list);
+	argv_free(server->mechanism_argv);
+    }
     myfree(server->service);
+    myfree(server->server_addr);
+    myfree(server->client_addr);
     myfree((char *) server);
 }
 
@@ -496,6 +545,7 @@ static int xsasl_dovecot_handle_reply(XSASL_DOVECOT_SERVER *server,
     const char *myname = "xsasl_dovecot_handle_reply";
     char   *line, *cmd;
 
+    /* XXX Encapsulate for logging. */
     while (vstring_get_nonl(server->sasl_line,
 			    server->impl->sasl_stream) != VSTREAM_EOF) {
 	line = vstring_str(server->sasl_line);
@@ -558,6 +608,7 @@ int     xsasl_dovecot_server_first(XSASL_SERVER *xp, const char *sasl_method,
     const char *myname = "xsasl_dovecot_server_first";
     XSASL_DOVECOT_SERVER *server = (XSASL_DOVECOT_SERVER *) xp;
     int     i;
+    char  **cpp;
 
 #define IFELSE(e1,e2,e3) ((e1) ? (e2) : (e3))
 
@@ -566,6 +617,17 @@ int     xsasl_dovecot_server_first(XSASL_SERVER *xp, const char *sasl_method,
 		 IFELSE(init_response, ", init_response ", ""),
 		 IFELSE(init_response, init_response, ""));
 
+    if (server->mechanism_argv == 0)
+	msg_panic("%s: no mechanism list", myname);
+
+    for (cpp = server->mechanism_argv->argv; /* see below */ ; cpp++) {
+	if (*cpp == 0) {
+	    vstring_strcpy(reply, "Invalid authentication mechanism");
+	    return XSASL_AUTH_FAIL;
+	}
+	if (strcasecmp(sasl_method, *cpp) == 0)
+	    break;
+    }
     if (init_response)
 	if (!is_valid_base64(init_response)) {
 	    vstring_strcpy(reply, "Invalid base64 data in initial response");
@@ -578,19 +640,26 @@ int     xsasl_dovecot_server_first(XSASL_SERVER *xp, const char *sasl_method,
 	}
 	/* send the request */
 	server->last_request_id = ++server->impl->request_id_counter;
+	/* XXX Encapsulate for logging. */
 	vstream_fprintf(server->impl->sasl_stream,
-			"AUTH\t%u\t%s\tservice=%s\tnologin",
+			"AUTH\t%u\t%s\tservice=%s\tnologin\tlip=%s\trip=%s",
 			server->last_request_id, sasl_method,
-			server->service);
+			server->service, server->server_addr,
+			server->client_addr);
+	if (server->tls_flag)
+	    /* XXX Encapsulate for logging. */
+	    vstream_fputs("\tsecured", server->impl->sasl_stream);
 	if (init_response) {
 
 	    /*
 	     * initial response is already base64 encoded, so we can send it
 	     * directly.
 	     */
+	    /* XXX Encapsulate for logging. */
 	    vstream_fprintf(server->impl->sasl_stream,
 			    "\tresp=%s", init_response);
 	}
+	/* XXX Encapsulate for logging. */
 	VSTREAM_PUTC('\n', server->impl->sasl_stream);
 
 	if (vstream_fflush(server->impl->sasl_stream) != VSTREAM_EOF)
@@ -621,6 +690,7 @@ static int xsasl_dovecot_server_next(XSASL_SERVER *xp, const char *request,
 	vstring_strcpy(reply, "Invalid base64 data in continued response");
 	return XSASL_AUTH_FAIL;
     }
+    /* XXX Encapsulate for logging. */
     vstream_fprintf(server->impl->sasl_stream,
 		    "CONT\t%u\t%s\n", server->last_request_id, request);
     if (vstream_fflush(server->impl->sasl_stream) == VSTREAM_EOF) {

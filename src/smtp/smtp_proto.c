@@ -274,6 +274,7 @@ int     smtp_helo(SMTP_STATE *state)
 	0, 0,
     };
     SOCKOPT_SIZE optlen;
+    int     sndbufsize;
     const char *ehlo_words;
     int     discard_mask;
     static const NAME_MASK pix_bug_table[] = {
@@ -557,29 +558,29 @@ int     smtp_helo(SMTP_STATE *state)
      * 
      * XXX No need to do this before and after STARTTLS, but it's not a big deal
      * if we do.
+     * 
+     * XXX This critically depends on VSTREAM buffers to never be smaller than
+     * VSTREAM_BUFSIZE.
      */
     if (session->features & SMTP_FEATURE_PIPELINING) {
-	optlen = sizeof(session->sndbufsize);
+	optlen = sizeof(sndbufsize);
 	if (getsockopt(vstream_fileno(session->stream), SOL_SOCKET,
-		     SO_SNDBUF, (char *) &session->sndbufsize, &optlen) < 0)
+		       SO_SNDBUF, (char *) &sndbufsize, &optlen) < 0)
 	    msg_fatal("%s: getsockopt: %m", myname);
-	if (session->sndbufsize > VSTREAM_BUFSIZE)
-	    session->sndbufsize = VSTREAM_BUFSIZE;
-	if (session->sndbufsize == 0) {
-	    session->sndbufsize = VSTREAM_BUFSIZE;
+	if (sndbufsize > VSTREAM_BUFSIZE)
+	    sndbufsize = VSTREAM_BUFSIZE;
+	if (sndbufsize < VSTREAM_BUFSIZE) {
+	    sndbufsize = VSTREAM_BUFSIZE;
 	    if (setsockopt(vstream_fileno(session->stream), SOL_SOCKET,
-		      SO_SNDBUF, (char *) &session->sndbufsize, optlen) < 0)
+			   SO_SNDBUF, (char *) &sndbufsize, optlen) < 0)
 		msg_fatal("%s: setsockopt: %m", myname);
 	}
 	if (msg_verbose)
 	    msg_info("Using %s PIPELINING, TCP send buffer size is %d",
 		     (state->misc_flags &
 		      SMTP_MISC_FLAG_USE_LMTP) ? "LMTP" : "ESMTP",
-		     session->sndbufsize);
-    } else {
-	session->sndbufsize = 0;
+		     sndbufsize);
     }
-
 #ifdef USE_TLS
 
     /*
@@ -1081,7 +1082,6 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
     int     except;
     int     rec_type;
     NOCLOBBER int prev_type = 0;
-    NOCLOBBER int sndbuffree;
     NOCLOBBER int mail_from_rejected;
     NOCLOBBER int downgrading;
     int     mime_errs;
@@ -1130,20 +1130,6 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 
 #define CANT_RSET_THIS_SESSION \
 	(session->features |= SMTP_FEATURE_RSET_REJECTED)
-
-    /*
-     * Sanity check. We don't want smtp_chat() to inadvertently flush the
-     * output buffer. That means someone broke pipelining support.
-     */
-    if (session->sndbufsize > VSTREAM_BUFSIZE)
-	msg_panic("bad sndbufsize %d > VSTREAM_BUFSIZE %d",
-		  session->sndbufsize, VSTREAM_BUFSIZE);
-
-    /*
-     * Miscellaneous initialization. Some of this might be done in
-     * smtp_xfer() but that just complicates interfaces and data structures.
-     */
-    sndbuffree = session->sndbufsize;
 
     /*
      * Pipelining support requires two loops: one loop for sending and one
@@ -1221,23 +1207,20 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 	     */
 	case SMTP_STATE_XFORWARD_NAME_ADDR:
 	    vstring_strcpy(next_command, XFORWARD_CMD);
-	    if (session->features & SMTP_FEATURE_XFORWARD_NAME) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_NAME)
+		&& DEL_REQ_ATTR_AVAIL(request->client_name)) {
 		vstring_strcat(next_command, " " XFORWARD_NAME "=");
-		xtext_quote_append(next_command,
-				   DEL_REQ_ATTR_AVAIL(request->client_name) ?
-			   request->client_name : XFORWARD_UNAVAILABLE, "");
+		xtext_quote_append(next_command, request->client_name, "");
 	    }
-	    if (session->features & SMTP_FEATURE_XFORWARD_ADDR) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_ADDR)
+		&& DEL_REQ_ATTR_AVAIL(request->client_addr)) {
 		vstring_strcat(next_command, " " XFORWARD_ADDR "=");
-		xtext_quote_append(next_command,
-				   DEL_REQ_ATTR_AVAIL(request->client_addr) ?
-			   request->client_addr : XFORWARD_UNAVAILABLE, "");
+		xtext_quote_append(next_command, request->client_addr, "");
 	    }
-	    if (session->features & SMTP_FEATURE_XFORWARD_PORT) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_PORT)
+		&& DEL_REQ_ATTR_AVAIL(request->client_port)) {
 		vstring_strcat(next_command, " " XFORWARD_PORT "=");
-		xtext_quote_append(next_command,
-				   DEL_REQ_ATTR_AVAIL(request->client_port) ?
-			   request->client_port : XFORWARD_UNAVAILABLE, "");
+		xtext_quote_append(next_command, request->client_port, "");
 	    }
 	    if (session->send_proto_helo)
 		next_state = SMTP_STATE_XFORWARD_PROTO_HELO;
@@ -1247,23 +1230,20 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 
 	case SMTP_STATE_XFORWARD_PROTO_HELO:
 	    vstring_strcpy(next_command, XFORWARD_CMD);
-	    if (session->features & SMTP_FEATURE_XFORWARD_PROTO) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_PROTO)
+		&& DEL_REQ_ATTR_AVAIL(request->client_proto)) {
 		vstring_strcat(next_command, " " XFORWARD_PROTO "=");
-		xtext_quote_append(next_command,
-				 DEL_REQ_ATTR_AVAIL(request->client_proto) ?
-			  request->client_proto : XFORWARD_UNAVAILABLE, "");
+		xtext_quote_append(next_command, request->client_proto, "");
 	    }
-	    if (session->features & SMTP_FEATURE_XFORWARD_HELO) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_HELO)
+		&& DEL_REQ_ATTR_AVAIL(request->client_helo)) {
 		vstring_strcat(next_command, " " XFORWARD_HELO "=");
-		xtext_quote_append(next_command,
-				   DEL_REQ_ATTR_AVAIL(request->client_helo) ?
-			   request->client_helo : XFORWARD_UNAVAILABLE, "");
+		xtext_quote_append(next_command, request->client_helo, "");
 	    }
-	    if (session->features & SMTP_FEATURE_XFORWARD_DOMAIN) {
+	    if ((session->features & SMTP_FEATURE_XFORWARD_DOMAIN)
+		&& DEL_REQ_ATTR_AVAIL(request->rewrite_context)) {
 		vstring_strcat(next_command, " " XFORWARD_DOMAIN "=");
 		xtext_quote_append(next_command,
-			 DEL_REQ_ATTR_AVAIL(request->rewrite_context) == 0 ?
-				   XFORWARD_UNAVAILABLE :
 		     strcmp(request->rewrite_context, MAIL_ATTR_RWR_LOCAL) ?
 			      XFORWARD_DOM_REMOTE : XFORWARD_DOM_LOCAL, "");
 	    }
@@ -1438,8 +1418,12 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 	 */
 	if (SENDER_IN_WAIT_STATE
 	    || (SENDER_IS_AHEAD
-		&& (VSTRING_LEN(next_command) + 2 > sndbuffree
-	    || time((time_t *) 0) - vstream_ftime(session->stream) > 10))) {
+		&& ((session->features & SMTP_FEATURE_PIPELINING) == 0
+		    || (VSTRING_LEN(next_command) + 2
+		    + vstream_bufstat(session->stream, VSTREAM_BST_OUT_PEND)
+			> VSTREAM_BUFSIZE)
+		    || time((time_t *) 0)
+		    - vstream_ftime(session->stream) > 10))) {
 	    while (SENDER_IS_AHEAD) {
 
 		/*
@@ -1713,10 +1697,8 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 	    }
 
 	    /*
-	     * At this point, the sender and receiver are fully synchronized,
-	     * so that the entire TCP send buffer becomes available again.
+	     * At this point, the sender and receiver are fully synchronized.
 	     */
-	    sndbuffree = session->sndbufsize;
 
 	    /*
 	     * We know the server response to every command that was sent.
@@ -1771,12 +1753,15 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 		 * XXX Don't downgrade just because generic_maps is turned
 		 * on.
 		 */
-		if (downgrading || smtp_generic_maps || smtp_header_checks
-		    || smtp_body_checks)
+#define SMTP_ANY_CHECKS (smtp_header_checks || smtp_body_checks)
+
+		if (downgrading || smtp_generic_maps || SMTP_ANY_CHECKS)
 		    session->mime_state = mime_state_alloc(downgrading ?
 							   MIME_OPT_DOWNGRADE
 						 | MIME_OPT_REPORT_NESTING :
-						      MIME_OPT_DISABLE_MIME,
+						      SMTP_ANY_CHECKS == 0 ?
+						     MIME_OPT_DISABLE_MIME :
+							   0,
 							   smtp_generic_maps
 						     || smtp_header_checks ?
 						       smtp_header_rewrite :
@@ -1880,8 +1865,6 @@ static int smtp_loop(SMTP_STATE *state, NOCLOBBER int send_state,
 	 * Copy the next command to the buffer and update the sender state.
 	 */
 	if (except == 0) {
-	    if (sndbuffree > 0)
-		sndbuffree -= VSTRING_LEN(next_command) + 2;
 	    smtp_chat_cmd(session, "%s", vstring_str(next_command));
 	} else {
 	    DONT_CACHE_THIS_SESSION;
@@ -1931,21 +1914,28 @@ int     smtp_xfer(SMTP_STATE *state)
     }
 
     /*
-     * Use the XFORWARD command to forward client attributes only when a
-     * minimal amount of information is available.
+     * Use XFORWARD to forward the origin of this email message across an
+     * SMTP-based content filter. Send client attribute information only if
+     * it exists (i.e. remote submission). Local submissions have no client
+     * attributes; the mail will appear to originate from the content filter
+     * which is acceptable.
      */
     send_name_addr =
 	var_smtp_send_xforward
 	&& (((session->features & SMTP_FEATURE_XFORWARD_NAME)
 	     && DEL_REQ_ATTR_AVAIL(request->client_name))
 	    || ((session->features & SMTP_FEATURE_XFORWARD_ADDR)
-		&& DEL_REQ_ATTR_AVAIL(request->client_addr)));
+		&& DEL_REQ_ATTR_AVAIL(request->client_addr))
+	    || ((session->features & SMTP_FEATURE_XFORWARD_PORT)
+		&& DEL_REQ_ATTR_AVAIL(request->client_port)));
     session->send_proto_helo =
 	var_smtp_send_xforward
 	&& (((session->features & SMTP_FEATURE_XFORWARD_PROTO)
 	     && DEL_REQ_ATTR_AVAIL(request->client_proto))
 	    || ((session->features & SMTP_FEATURE_XFORWARD_HELO)
-		&& DEL_REQ_ATTR_AVAIL(request->client_helo)));
+		&& DEL_REQ_ATTR_AVAIL(request->client_helo))
+	    || ((session->features & SMTP_FEATURE_XFORWARD_DOMAIN)
+		&& DEL_REQ_ATTR_AVAIL(request->rewrite_context)));
     if (send_name_addr)
 	recv_state = send_state = SMTP_STATE_XFORWARD_NAME_ADDR;
     else if (session->send_proto_helo)

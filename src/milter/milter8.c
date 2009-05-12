@@ -83,7 +83,7 @@
 
 /* Global library. */
 
-#include <mail_params.h>		/* var_line_limit */
+#include <mail_params.h>
 #include <mail_proto.h>
 #include <rec_type.h>
 #include <record.h>
@@ -430,7 +430,7 @@ typedef struct {
 #define MILTER8_V3_PROTO_MASK	(MILTER8_V2_PROTO_MASK | SMFIP_NOUNKNOWN)
 #define MILTER8_V4_PROTO_MASK	(MILTER8_V3_PROTO_MASK | SMFIP_NODATA)
 #define MILTER8_V6_PROTO_MASK \
-	(MILTER8_V4_PROTO_MASK | SMFIP_SKIP /* | SMFIP_RCPT_REJ */ \
+	(MILTER8_V4_PROTO_MASK | SMFIP_SKIP | SMFIP_RCPT_REJ \
 	| SMFIP_NOREPLY_MASK | SMFIP_HDR_LEADSPC)
 
  /*
@@ -505,6 +505,8 @@ static int milter8_conf_error(MILTER8 *milter)
     }
     if (strcasecmp(milter->def_action, "accept") == 0) {
 	reply = 0;
+    } else if (strcasecmp(milter->def_action, "quarantine") == 0) {
+	reply = "H";
     } else {
 	reply = "451 4.3.5 Server configuration problem - try again later";
     }
@@ -537,6 +539,8 @@ static int milter8_comm_error(MILTER8 *milter)
 	reply = "550 5.5.0 Service unavailable";
     } else if (strcasecmp(milter->def_action, "tempfail") == 0) {
 	reply = "451 4.7.1 Service unavailable - try again later";
+    } else if (strcasecmp(milter->def_action, "quarantine") == 0) {
+	reply = "H";
     } else {
 	msg_warn("milter %s: unrecognized default action: %s",
 		 milter->m.name, milter->def_action);
@@ -1094,6 +1098,7 @@ static const char *milter8_event(MILTER8 *milter, int event,
 	char   *cp;
 	char   *rp;
 	char    ch;
+	char   *next;
 
 	if (milter8_read_resp(milter, event, &cmd, &data_size) != 0)
 	    MILTER8_EVENT_BREAK(milter->def_reply);
@@ -1266,6 +1271,18 @@ static const char *milter8_event(MILTER8 *milter, int event,
 			break;
 		}
 	    }
+	    if (var_soft_bounce) {
+		for (cp = STR(milter->buf); /* void */ ; cp = next) {
+		    if (cp[0] == '5') {
+			cp[0] = '4';
+			if (cp[4] == '5')
+			    cp[4] = '4';
+		    }
+		    if ((next = strstr(cp, "\r\n")) == 0)
+			break;
+		    next += 2;
+		}
+	    }
 	    if (IN_CONNECT_EVENT(event)) {
 #ifdef LIBMILTER_AUTO_DISCONNECT
 		milter8_close_stream(milter);
@@ -1396,6 +1413,32 @@ static const char *milter8_event(MILTER8 *milter, int event,
 		    continue;
 
 		    /*
+		     * Modification request: replace sender, with optional
+		     * ESMTP args.
+		     */
+		case SMFIR_CHGFROM:
+		    if (milter8_read_data(milter, &data_size,
+					  MILTER8_DATA_STRING, milter->buf,
+					  MILTER8_DATA_MORE) != 0)
+			MILTER8_EVENT_BREAK(milter->def_reply);
+		    if (data_size > 0) {
+			if (milter8_read_data(milter, &data_size,
+					  MILTER8_DATA_STRING, milter->body,
+					      MILTER8_DATA_END) != 0)
+			    MILTER8_EVENT_BREAK(milter->def_reply);
+		    } else {
+			VSTRING_RESET(milter->body);
+			VSTRING_TERMINATE(milter->body);
+		    }
+		    /* Skip to the next request after previous edit error. */
+		    if (edit_resp)
+			continue;
+		    edit_resp = parent->chg_from(parent->chg_context,
+						 STR(milter->buf),
+						 STR(milter->body));
+		    continue;
+
+		    /*
 		     * Modification request: append recipient.
 		     */
 		case SMFIR_ADDRCPT:
@@ -1408,6 +1451,32 @@ static const char *milter8_event(MILTER8 *milter, int event,
 			continue;
 		    edit_resp = parent->add_rcpt(parent->chg_context,
 						 STR(milter->buf));
+		    continue;
+
+		    /*
+		     * Modification request: append recipient, with optional
+		     * ESMTP args.
+		     */
+		case SMFIR_ADDRCPT_PAR:
+		    if (milter8_read_data(milter, &data_size,
+					  MILTER8_DATA_STRING, milter->buf,
+					  MILTER8_DATA_MORE) != 0)
+			MILTER8_EVENT_BREAK(milter->def_reply);
+		    if (data_size > 0) {
+			if (milter8_read_data(milter, &data_size,
+					  MILTER8_DATA_STRING, milter->body,
+					      MILTER8_DATA_END) != 0)
+			    MILTER8_EVENT_BREAK(milter->def_reply);
+		    } else {
+			VSTRING_RESET(milter->body);
+			VSTRING_TERMINATE(milter->body);
+		    }
+		    /* Skip to the next request after previous edit error. */
+		    if (edit_resp)
+			continue;
+		    edit_resp = parent->add_rcpt_par(parent->chg_context,
+						     STR(milter->buf),
+						     STR(milter->body));
 		    continue;
 
 		    /*
@@ -1525,10 +1594,8 @@ static void milter8_connect(MILTER8 *milter)
 				    | SMFIF_DELRCPT | SMFIF_CHGHDRS
 				    | SMFIF_CHGBODY
 				    | SMFIF_QUARANTINE
-#if 0
 				    | SMFIF_CHGFROM
 				    | SMFIF_ADDRCPT_PAR
-#endif
 				    | SMFIF_SETSYMLIST
     );
     UINT32_TYPE my_version = 0;
@@ -1703,6 +1770,8 @@ static void milter8_connect(MILTER8 *milter)
 	(void) milter8_comm_error(milter);
 	return;
     }
+    if (milter->ev_mask & SMFIP_RCPT_REJ)
+	milter->m.flags |= MILTER_FLAG_WANT_RCPT_REJ;
 
     /*
      * Initial negotiations completed.
@@ -2686,6 +2755,7 @@ static MILTER8 *milter8_alloc(const char *name, int conn_timeout,
      */
     milter = (MILTER8 *) mymalloc(sizeof(*milter));
     milter->m.name = mystrdup(name);
+    milter->m.flags = 0;
     milter->m.next = 0;
     milter->m.parent = parent;
     milter->m.macros = 0;

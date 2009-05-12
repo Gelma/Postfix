@@ -135,6 +135,10 @@ Available in Postfix version 2.3 and later:
 Force the Postfix SMTP server to issue a TLS session id, even
 when TLS session caching is turned off (smtpd_tls_session_cache_database
 is empty).
+.PP
+Available in Postfix version 2.6 and later:
+.IP "\fBtcp_windowsize (0)\fR"
+An optional workaround for routers that break TCP window scaling.
 .SH "ADDRESS REWRITING CONTROLS"
 .na
 .nf
@@ -196,9 +200,10 @@ mail is queued. For details see the MILTER_README document.
 .IP "\fBsmtpd_milters (empty)\fR"
 A list of Milter (mail filter) applications for new mail that
 arrives via the Postfix \fBsmtpd\fR(8) server.
-.IP "\fBmilter_protocol (2)\fR"
+.IP "\fBmilter_protocol (6)\fR"
 The mail filter protocol version and optional protocol extensions
-for communication with a Milter (mail filter) application.
+for communication with a Milter application; prior to Postfix 2.6
+the default protocol is 2.
 .IP "\fBmilter_default_action (tempfail)\fR"
 The default action when a Milter (mail filter) application is
 unavailable or mis-configured.
@@ -215,28 +220,28 @@ filter) application, and for receiving the response.
 .IP "\fBmilter_content_timeout (300s)\fR"
 The time limit for sending message content to a Milter (mail
 filter) application, and for receiving the response.
-.IP "\fBmilter_connect_macros (see postconf -n output)\fR"
+.IP "\fBmilter_connect_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after completion of an SMTP connection.
-.IP "\fBmilter_helo_macros (see postconf -n output)\fR"
+.IP "\fBmilter_helo_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after the SMTP HELO or EHLO command.
-.IP "\fBmilter_mail_macros (see postconf -n output)\fR"
+.IP "\fBmilter_mail_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after the SMTP MAIL FROM command.
-.IP "\fBmilter_rcpt_macros (see postconf -n output)\fR"
+.IP "\fBmilter_rcpt_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after the SMTP RCPT TO command.
-.IP "\fBmilter_data_macros (see postconf -n output)\fR"
+.IP "\fBmilter_data_macros (see 'postconf -d' output)\fR"
 The macros that are sent to version 4 or higher Milter (mail
 filter) applications after the SMTP DATA command.
-.IP "\fBmilter_unknown_command_macros (see postconf -n output)\fR"
+.IP "\fBmilter_unknown_command_macros (see 'postconf -d' output)\fR"
 The macros that are sent to version 3 or higher Milter (mail
 filter) applications after an unknown SMTP command.
-.IP "\fBmilter_end_of_header_macros (see postconf -n output)\fR"
+.IP "\fBmilter_end_of_header_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after the end of the message header.
-.IP "\fBmilter_end_of_data_macros (see postconf -n output)\fR"
+.IP "\fBmilter_end_of_data_macros (see 'postconf -d' output)\fR"
 The macros that are sent to Milter (mail filter) applications
 after the message end-of-data.
 .SH "GENERAL CONTENT INSPECTION CONTROLS"
@@ -333,11 +338,13 @@ server uses for TLS encrypted SMTP sessions.
 The time limit for Postfix SMTP server write and read operations
 during TLS startup and shutdown handshake procedures.
 .IP "\fBsmtpd_tls_CAfile (empty)\fR"
-The file with the certificate of the certification authority
-(CA) that issued the Postfix SMTP server certificate.
-.IP "\fBsmtpd_tls_CAfile (empty)\fR"
-The file with the certificate of the certification authority
-(CA) that issued the Postfix SMTP server certificate.
+A file containing (PEM format) CA certificates of root CAs trusted
+to sign either remote SMTP client certificates or intermediate CA
+certificates.
+.IP "\fBsmtpd_tls_CApath (empty)\fR"
+A directory containing (PEM format) CA certificates of root CAs
+trusted to sign either remote SMTP client certificates or intermediate CA
+certificates.
 .IP "\fBsmtpd_tls_always_issue_session_ids (yes)\fR"
 Force the Postfix SMTP server to issue a TLS session id, even
 when TLS session caching is turned off (smtpd_tls_session_cache_database
@@ -370,9 +377,8 @@ File with the Postfix SMTP server RSA private key in PEM format.
 .IP "\fBsmtpd_tls_loglevel (0)\fR"
 Enable additional Postfix SMTP server logging of TLS activity.
 .IP "\fBsmtpd_tls_mandatory_ciphers (medium)\fR"
-The minimum TLS cipher grade that the Postfix SMTP server will
-use with mandatory
-TLS encryption.
+The minimum TLS cipher grade that the Postfix SMTP server
+will use with mandatory TLS encryption.
 .IP "\fBsmtpd_tls_mandatory_exclude_ciphers (empty)\fR"
 Additional list of ciphers or cipher types to exclude from the
 SMTP server cipher list at mandatory TLS security levels.
@@ -417,6 +423,27 @@ Available in Postfix version 2.5 and later:
 The message digest algorithm used to construct client-certificate
 fingerprints for \fBcheck_ccert_access\fR and
 \fBpermit_tls_clientcerts\fR.
+.PP
+Available in Postfix version 2.6 and later:
+.IP "\fBsmtpd_tls_protocols (empty)\fR"
+List of TLS protocols that the Postfix SMTP server will exclude
+or include with opportunistic TLS encryption.
+.IP "\fBsmtpd_tls_ciphers (export)\fR"
+The minimum TLS cipher grade that the Postfix SMTP server
+will use with opportunistic TLS encryption.
+.IP "\fBsmtpd_tls_eccert_file (empty)\fR"
+File with the Postfix SMTP server ECDSA certificate in PEM format.
+.IP "\fBsmtpd_tls_eckey_file ($smtpd_tls_eccert_file)\fR"
+File with the Postfix SMTP server ECDSA private key in PEM format.
+.IP "\fBsmtpd_tls_eecdh_grade (see 'postconf -d' output)\fR"
+The Postfix SMTP server security grade for ephemeral elliptic-curve
+Diffie-Hellman (EECDH) key exchange.
+.IP "\fBtls_eecdh_strong_curve (prime256v1)\fR"
+The elliptic curve used by the SMTP server for sensibly strong
+ephemeral ECDH key exchange.
+.IP "\fBtls_eecdh_ultra_curve (secp384r1)\fR"
+The elliptic curve used by the SMTP server for maximally strong
+ephemeral ECDH key exchange.
 .SH "OBSOLETE STARTTLS CONTROLS"
 .na
 .nf
@@ -591,7 +618,7 @@ The maximal size in bytes of a message, including envelope information.
 .IP "\fBsmtpd_recipient_limit (1000)\fR"
 The maximal number of recipients that the Postfix SMTP server
 accepts per message delivery request.
-.IP "\fBsmtpd_timeout (300s)\fR"
+.IP "\fBsmtpd_timeout (normal: 300s, stress: 10s)\fR"
 The time limit for sending a Postfix SMTP server response and for
 receiving a remote SMTP client request.
 .IP "\fBsmtpd_history_flush_threshold (100)\fR"
@@ -647,10 +674,10 @@ fewer than $smtpd_hard_error_limit errors, without delivering mail.
 The number of errors a remote SMTP client is allowed to make without
 delivering mail before the Postfix SMTP server slows down all its
 responses.
-.IP "\fBsmtpd_hard_error_limit (20)\fR"
+.IP "\fBsmtpd_hard_error_limit (normal: 20, stress: 1)\fR"
 The maximal number of errors a remote SMTP client is allowed to
 make without delivering mail.
-.IP "\fBsmtpd_junk_command_limit (100)\fR"
+.IP "\fBsmtpd_junk_command_limit (normal: 100, stress: 1)\fR"
 The number of junk commands (NOOP, VRFY, ETRN or RSET) that a remote
 SMTP client can send before the Postfix SMTP server starts to
 increment the error counter with each junk command.
@@ -774,6 +801,26 @@ address is rejected by the reject_unverified_sender restriction.
 .IP "\fBunverified_recipient_reject_code (450)\fR"
 The numerical Postfix SMTP server response when a recipient address
 is rejected by the reject_unverified_recipient restriction.
+.PP
+Available in Postfix version 2.6 and later:
+.IP "\fBunverified_sender_defer_code (450)\fR"
+The numerical Postfix SMTP server response code when a sender address
+probe fails due to a temporary error condition.
+.IP "\fBunverified_recipient_defer_code (450)\fR"
+The numerical Postfix SMTP server response when a recipient address
+probe fails due to a temporary error condition.
+.IP "\fBunverified_sender_reject_reason (empty)\fR"
+The Postfix SMTP server's reply when rejecting mail with
+reject_unverified_sender.
+.IP "\fBunverified_recipient_reject_reason (empty)\fR"
+The Postfix SMTP server's reply when rejecting mail with
+reject_unverified_recipient.
+.IP "\fBunverified_sender_tempfail_action ($reject_tempfail_action)\fR"
+The Postfix SMTP server's action when reject_unverified_sender
+fails due to a temporary error condition.
+.IP "\fBunverified_recipient_tempfail_action ($reject_tempfail_action)\fR"
+The Postfix SMTP server's action when reject_unverified_recipient
+fails due to a temporary error condition.
 .SH "ACCESS CONTROL RESPONSES"
 .na
 .nf
@@ -782,8 +829,8 @@ is rejected by the reject_unverified_recipient restriction.
 The following parameters control numerical SMTP reply codes
 and/or text responses.
 .IP "\fBaccess_map_reject_code (554)\fR"
-The numerical Postfix SMTP server response code when a client
-is rejected by an \fBaccess\fR(5) map restriction.
+The numerical Postfix SMTP server response code for
+an \fBaccess\fR(5) map "reject" action.
 .IP "\fBdefer_code (450)\fR"
 The numerical Postfix SMTP server response code when a remote SMTP
 client request is rejected by the "defer" restriction.
@@ -832,6 +879,22 @@ client request is blocked by the reject_multi_recipient_bounce
 restriction.
 .IP "\fBrbl_reply_maps (empty)\fR"
 Optional lookup tables with RBL response templates.
+.PP
+Available in Postfix version 2.6 and later:
+.IP "\fBaccess_map_defer_code (450)\fR"
+The numerical Postfix SMTP server response code for
+an \fBaccess\fR(5) map "defer" action, including "defer_if_permit"
+or "defer_if_reject".
+.IP "\fBreject_tempfail_action (defer_if_permit)\fR"
+The Postfix SMTP server's action when a reject-type restriction
+fails due to a temporary error condition.
+.IP "\fBunknown_helo_hostname_tempfail_action ($reject_tempfail_action)\fR"
+The Postfix SMTP server's action when reject_unknown_helo_hostname
+fails due to an temporary error condition.
+.IP "\fBunknown_address_tempfail_action ($reject_tempfail_action)\fR"
+The Postfix SMTP server's action when reject_unknown_sender_domain
+or reject_unknown_recipient_domain fail due to a temporary error
+condition.
 .SH "MISCELLANEOUS CONTROLS"
 .na
 .nf
@@ -884,7 +947,7 @@ The text that follows the 220 status code in the SMTP greeting
 banner.
 .IP "\fBsyslog_facility (mail)\fR"
 The syslog facility of Postfix logging.
-.IP "\fBsyslog_name (postfix)\fR"
+.IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 The mail system name that is prepended to the process name in syslog
 records, so that "smtpd" becomes, for example, "postfix/smtpd".
 .PP

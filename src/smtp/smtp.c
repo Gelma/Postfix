@@ -162,7 +162,7 @@
 /*	per-destination workarounds for CISCO PIX firewall bugs.
 /* .IP "\fBsmtp_quote_rfc821_envelope (yes)\fR"
 /*	Quote addresses in SMTP MAIL FROM and RCPT TO commands as required
-/*	by RFC 821.
+/*	by RFC 2821.
 /* .IP "\fBsmtp_skip_5xx_greeting (yes)\fR"
 /*	Skip SMTP servers that greet with a 5XX status code (go away, do
 /*	not try again later).
@@ -223,6 +223,10 @@
 /*	client.
 /* .IP "\fBsmtp_body_checks (empty)\fR"
 /*	Restricted \fBbody_checks\fR(5) tables for the Postfix SMTP client.
+/* .PP
+/*	Available in Postfix version 2.6 and later:
+/* .IP "\fBtcp_windowsize (0)\fR"
+/*	An optional workaround for routers that break TCP window scaling.
 /* MIME PROCESSING CONTROLS
 /* .ad
 /* .fi
@@ -303,8 +307,8 @@
 /*	Time limit for Postfix SMTP client write and read operations
 /*	during TLS startup and shutdown handshake procedures.
 /* .IP "\fBsmtp_tls_CAfile (empty)\fR"
-/*	The file with the certificate of the certification authority
-/*	(CA) that issued the Postfix SMTP client certificate.
+/*	A file containing CA certificates of root CAs trusted to sign
+/*	either remote SMTP server certificates or intermediate CA certificates.
 /* .IP "\fBsmtp_tls_CApath (empty)\fR"
 /*	Directory with PEM format certificate authority certificates
 /*	that the Postfix SMTP client uses to verify a remote SMTP server
@@ -384,6 +388,18 @@
 /* .IP "\fBsmtp_tls_fingerprint_digest (md5)\fR"
 /*	The message digest algorithm used to construct remote SMTP server
 /*	certificate fingerprints.
+/* .PP
+/*	Available in Postfix version 2.6 and later:
+/* .IP "\fBsmtp_tls_protocols (!SSLv2)\fR"
+/*	List of TLS protocols that the Postfix SMTP client will exclude or
+/*	include with opportunistic TLS encryption.
+/* .IP "\fBsmtp_tls_ciphers (export)\fR"
+/*	The minimum TLS cipher grade that the Postfix SMTP client
+/*	will use with opportunistic TLS encryption.
+/* .IP "\fBsmtp_tls_eccert_file (empty)\fR"
+/*	File with the Postfix SMTP client ECDSA certificate in PEM format.
+/* .IP "\fBsmtp_tls_eckey_file ($smtp_tls_eccert_file)\fR"
+/*	File with the Postfix SMTP client ECDSA private key in PEM format.
 /* OBSOLETE STARTTLS CONTROLS
 /* .ad
 /* .fi
@@ -413,7 +429,7 @@
 /*	The maximal number of parallel deliveries to the same destination
 /*	via the smtp message delivery transport.
 /* .IP "\fBsmtp_destination_recipient_limit ($default_destination_recipient_limit)\fR"
-/*	The maximal number of recipients per delivery via the smtp
+/*	The maximal number of recipients per message for the smtp
 /*	message delivery transport.
 /* .IP "\fBsmtp_connect_timeout (30s)\fR"
 /*	The SMTP client time limit for completing a TCP connection, or
@@ -526,6 +542,10 @@
 /* .IP "\fBipc_timeout (3600s)\fR"
 /*	The time limit for sending or receiving information over an internal
 /*	communication channel.
+/* .IP "\fBlmtp_assume_final (no)\fR"
+/*	When an LMTP server announces no DSN support, assume that the
+/*	server performs final delivery, and send "delivered" delivery status
+/*	notifications instead of "relayed".
 /* .IP "\fBlmtp_tcp_port (24)\fR"
 /*	The default TCP port that the Postfix LMTP client connects to.
 /* .IP "\fBmax_idle (100s)\fR"
@@ -558,7 +578,7 @@
 /*	Randomize the order of equal-preference MX host addresses.
 /* .IP "\fBsyslog_facility (mail)\fR"
 /*	The syslog facility of Postfix logging.
-/* .IP "\fBsyslog_name (postfix)\fR"
+/* .IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 /*	The mail system name that is prepended to the process name in syslog
 /*	records, so that "smtpd" becomes, for example, "postfix/smtpd".
 /* .PP
@@ -745,6 +765,10 @@ int     var_smtp_tls_scert_vd;
 char   *var_smtp_tls_vfy_cmatch;
 char   *var_smtp_tls_fpt_cmatch;
 char   *var_smtp_tls_fpt_dgst;
+char   *var_smtp_tls_proto;
+char   *var_smtp_tls_ciph;
+char   *var_smtp_tls_eccert_file;
+char   *var_smtp_tls_eckey_file;
 
 #endif
 
@@ -761,6 +785,7 @@ char   *var_smtp_head_chks;
 char   *var_smtp_mime_chks;
 char   *var_smtp_nest_chks;
 char   *var_smtp_body_chks;
+bool    var_lmtp_assume_final;
 
  /* Special handling of 535 AUTH errors. */
 char   *var_smtp_sasl_auth_cache_name;
@@ -968,6 +993,8 @@ static void pre_init(char *unused_name, char **unused_argv)
 			    key_file = var_smtp_tls_key_file,
 			    dcert_file = var_smtp_tls_dcert_file,
 			    dkey_file = var_smtp_tls_dkey_file,
+			    eccert_file = var_smtp_tls_eccert_file,
+			    eckey_file = var_smtp_tls_eckey_file,
 			    CAfile = var_smtp_tls_CAfile,
 			    CApath = var_smtp_tls_CApath,
 			    fpt_dgst = var_smtp_tls_fpt_dgst);

@@ -68,7 +68,7 @@
 /*	The location of the Postfix top-level queue directory.
 /* .IP "\fBsyslog_facility (mail)\fR"
 /*	The syslog facility of Postfix logging.
-/* .IP "\fBsyslog_name (postfix)\fR"
+/* .IP "\fBsyslog_name (see 'postconf -d' output)\fR"
 /*	The mail system name that is prepended to the process name in syslog
 /*	records, so that "smtpd" becomes, for example, "postfix/smtpd".
 /* .IP "\fBtrigger_timeout (10s)\fR"
@@ -340,7 +340,8 @@ int     main(int argc, char **argv)
 
     signal(SIGINT, postdrop_sig);
     signal(SIGQUIT, postdrop_sig);
-    signal(SIGTERM, postdrop_sig);
+    if (signal(SIGTERM, SIG_IGN) == SIG_DFL)
+	signal(SIGTERM, postdrop_sig);
     if (signal(SIGHUP, SIG_IGN) == SIG_DFL)
 	signal(SIGHUP, postdrop_sig);
     msg_cleanup(postdrop_cleanup);

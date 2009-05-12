@@ -286,7 +286,7 @@ QMGR(8)                                                                QMGR(8)
               negative feedback, after a delivery completes  with
               a connection or handshake failure.
 
-       <b><a href="postconf.5.html#transport_destination_concurrency_positive_feedback"><i>transport</i>_destination_concurrency_negative_feedback</a></b>
+       <b><a href="postconf.5.html#transport_destination_concurrency_negative_feedback"><i>transport</i>_destination_concurrency_negative_feedback</a></b>
        <b>($<a href="postconf.5.html#default_destination_concurrency_negative_feedback">default_destination_concurrency_negative_feedback</a>)</b>
               Idem, for delivery via the named message <i>transport</i>.
 
@@ -393,11 +393,6 @@ QMGR(8)                                                                QMGR(8)
               The default location of  the  Postfix  <a href="postconf.5.html">main.cf</a>  and
               <a href="master.5.html">master.cf</a> configuration files.
 
-       <b><a href="postconf.5.html#daemon_timeout">daemon_timeout</a> (18000s)</b>
-              How  much time a Postfix daemon process may take to
-              handle a request  before  it  is  terminated  by  a
-              built-in watchdog timer.
-
        <b><a href="postconf.5.html#defer_transports">defer_transports</a> (empty)</b>
               The  names  of  message  delivery  transports  that
               should  not  deliver  mail  unless  someone  issues
@@ -430,7 +425,7 @@ QMGR(8)                                                                QMGR(8)
        <b><a href="postconf.5.html#syslog_facility">syslog_facility</a> (mail)</b>
               The syslog facility of Postfix logging.
 
-       <b><a href="postconf.5.html#syslog_name">syslog_name</a> (postfix)</b>
+       <b><a href="postconf.5.html#syslog_name">syslog_name</a> (see 'postconf -d' output)</b>
               The  mail  system  name  that  is  prepended to the
               process name in syslog  records,  so  that  "smtpd"
               becomes, for example, "postfix/smtpd".
