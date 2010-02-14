@@ -435,6 +435,12 @@ typedef struct {
     const char *txt;			/* randomly selected trimmed TXT rr */
 } SMTPD_RBL_EXPAND_CONTEXT;
 
+ /*
+  * Multiplication factor for free space check. Free space must be at least
+  * smtpd_space_multf * message_size_limit.
+  */
+double  smtpd_space_multf = 1.5;
+
 /* policy_client_register - register policy service endpoint */
 
 static void policy_client_register(const char *name)
@@ -2315,8 +2321,13 @@ static int check_access(SMTPD_STATE *state, const char *table, const char *name,
     if (msg_verbose)
 	msg_info("%s: %s", myname, name);
 
-    if ((dict = dict_handle(table)) == 0)
-	msg_panic("%s: dictionary not found: %s", myname, table);
+    if ((dict = dict_handle(table)) == 0) {
+	msg_warn("%s: unexpected dictionary: %s", myname, table);
+	value = "451 4.3.5 Server configuration error";
+	CHK_ACCESS_RETURN(check_table_result(state, table, value, name,
+					     reply_name, reply_class,
+					     def_acl), FOUND);
+    }
     if (flags == 0 || (flags & dict->flags) != 0) {
 	if ((value = dict_get(dict, name)) != 0)
 	    CHK_ACCESS_RETURN(check_table_result(state, table, value, name,
@@ -2360,8 +2371,13 @@ static int check_domain_access(SMTPD_STATE *state, const char *table,
      */
 #define CHK_DOMAIN_RETURN(x,y) { *found = y; return(x); }
 
-    if ((dict = dict_handle(table)) == 0)
-	msg_panic("%s: dictionary not found: %s", myname, table);
+    if ((dict = dict_handle(table)) == 0) {
+	msg_warn("%s: unexpected dictionary: %s", myname, table);
+	value = "451 4.3.5 Server configuration error";
+	CHK_DOMAIN_RETURN(check_table_result(state, table, value,
+					     domain, reply_name, reply_class,
+					     def_acl), FOUND);
+    }
     for (name = domain; *name != 0; name = next) {
 	if (flags == 0 || (flags & dict->flags) != 0) {
 	    if ((value = dict_get(dict, name)) != 0)
@@ -2419,8 +2435,13 @@ static int check_addr_access(SMTPD_STATE *state, const char *table,
 #endif
 	delim = '.';
 
-    if ((dict = dict_handle(table)) == 0)
-	msg_panic("%s: dictionary not found: %s", myname, table);
+    if ((dict = dict_handle(table)) == 0) {
+	msg_warn("%s: unexpected dictionary: %s", myname, table);
+	value = "451 4.3.5 Server configuration error";
+	CHK_ADDR_RETURN(check_table_result(state, table, value, address,
+					   reply_name, reply_class,
+					   def_acl), FOUND);
+    }
     do {
 	if (flags == 0 || (flags & dict->flags) != 0) {
 	    if ((value = dict_get(dict, addr)) != 0)
@@ -2557,12 +2578,12 @@ static int check_server_access(SMTPD_STATE *state, const char *table,
      */
     dns_status = dns_lookup(domain, type, 0, &server_list,
 			    (VSTRING *) 0, (VSTRING *) 0);
-    if (dns_status == DNS_NOTFOUND && h_errno == NO_DATA) {
+    if (dns_status == DNS_NOTFOUND /* Not: h_errno == NO_DATA */ ) {
 	if (type == T_MX) {
 	    server_list = dns_rr_create(domain, domain, type, C_IN, 0, 0,
 					domain, strlen(domain) + 1);
 	    dns_status = DNS_OK;
-	} else if (type == T_NS) {
+	} else if (type == T_NS && h_errno == NO_DATA) {
 	    while ((domain = strchr(domain, '.')) != 0 && domain[1]) {
 		domain += 1;
 		dns_status = dns_lookup(domain, type, 0, &server_list,
@@ -2591,6 +2612,13 @@ static int check_server_access(SMTPD_STATE *state, const char *table,
 	if (msg_verbose)
 	    msg_info("%s: %s hostname check: %s",
 		     myname, dns_strtype(type), (char *) server->data);
+	if (valid_hostaddr((char *) server->data, DONT_GRIPE)) {
+	    if ((status = check_addr_access(state, table, (char *) server->data,
+				      FULL, &found, reply_name, reply_class,
+					    def_acl)) != 0 || found)
+		CHECK_SERVER_RETURN(status);
+	    continue;
+	}
 	if ((status = check_domain_access(state, table, (char *) server->data,
 				      FULL, &found, reply_name, reply_class,
 					  def_acl)) != 0 || found)
@@ -3279,9 +3307,15 @@ static int reject_auth_sender_login_mismatch(SMTPD_STATE *state, const char *sen
     int     found = 0;
 
     /*
+     * Replace obscure code by self-evident code.
+     */
+#define SMTPD_SASL_AUTHENTICATED(state) \
+	(smtpd_sasl_is_active(state) && state->sasl_username != 0)
+
+    /*
      * Reject if the client is logged in and does not own the sender address.
      */
-    if (smtpd_sasl_is_active(state) && state->sasl_username != 0) {
+    if (var_smtpd_sasl_enable && SMTPD_SASL_AUTHENTICATED(state)) {
 	reply = smtpd_resolve_addr(sender);
 	if (reply->flags & RESOLVE_FLAG_FAIL)
 	    reject_dict_retry(state, sender);
@@ -3314,7 +3348,7 @@ static int reject_unauth_sender_login_mismatch(SMTPD_STATE *state, const char *s
      * Reject if the client is not logged in and the sender address has an
      * owner.
      */
-    if (smtpd_sasl_is_active(state) && state->sasl_username == 0) {
+    if (var_smtpd_sasl_enable && !SMTPD_SASL_AUTHENTICATED(state)) {
 	reply = smtpd_resolve_addr(sender);
 	if (reply->flags & RESOLVE_FLAG_FAIL)
 	    reject_dict_retry(state, sender);
@@ -3658,6 +3692,34 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 	    }
 	} else if (is_map_command(state, name, CHECK_CCERT_ACL, &cpp)) {
 	    status = check_ccert_access(state, *cpp, def_acl);
+	} else if (is_map_command(state, name, CHECK_CLIENT_NS_ACL, &cpp)) {
+	    if (strcasecmp(state->name, "unknown") != 0) {
+		status = check_server_access(state, *cpp, state->name,
+					     T_NS, state->namaddr,
+					     SMTPD_NAME_CLIENT, def_acl);
+		forbid_whitelist(state, name, status, state->name);
+	    }
+	} else if (is_map_command(state, name, CHECK_CLIENT_MX_ACL, &cpp)) {
+	    if (strcasecmp(state->name, "unknown") != 0) {
+		status = check_server_access(state, *cpp, state->name,
+					     T_MX, state->namaddr,
+					     SMTPD_NAME_CLIENT, def_acl);
+		forbid_whitelist(state, name, status, state->name);
+	    }
+	} else if (is_map_command(state, name, CHECK_REVERSE_CLIENT_NS_ACL, &cpp)) {
+	    if (strcasecmp(state->reverse_name, "unknown") != 0) {
+		status = check_server_access(state, *cpp, state->reverse_name,
+					     T_NS, state->namaddr,
+					     SMTPD_NAME_REV_CLIENT, def_acl);
+		forbid_whitelist(state, name, status, state->reverse_name);
+	    }
+	} else if (is_map_command(state, name, CHECK_REVERSE_CLIENT_MX_ACL, &cpp)) {
+	    if (strcasecmp(state->reverse_name, "unknown") != 0) {
+		status = check_server_access(state, *cpp, state->reverse_name,
+					     T_MX, state->namaddr,
+					     SMTPD_NAME_REV_CLIENT, def_acl);
+		forbid_whitelist(state, name, status, state->reverse_name);
+	    }
 	}
 
 	/*
@@ -3766,7 +3828,7 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 					  state->sender, SMTPD_NAME_SENDER);
 	} else if (strcasecmp(name, REJECT_AUTH_SENDER_LOGIN_MISMATCH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (smtpd_sasl_is_active(state)) {
+	    if (var_smtpd_sasl_enable) {
 		if (state->sender && *state->sender)
 		    status = reject_auth_sender_login_mismatch(state, state->sender);
 	    } else
@@ -3774,7 +3836,7 @@ static int generic_checks(SMTPD_STATE *state, ARGV *restrictions,
 		msg_warn("restriction `%s' ignored: no SASL support", name);
 	} else if (strcasecmp(name, REJECT_UNAUTH_SENDER_LOGIN_MISMATCH) == 0) {
 #ifdef USE_SASL_AUTH
-	    if (smtpd_sasl_is_active(state)) {
+	    if (var_smtpd_sasl_enable) {
 		if (state->sender && *state->sender)
 		    status = reject_unauth_sender_login_mismatch(state, state->sender);
 	    } else
@@ -4566,13 +4628,14 @@ char   *smtpd_check_queue(SMTPD_STATE *state)
 		 (unsigned long) var_queue_minfree,
 		 (unsigned long) var_message_limit);
     if (BLOCKS(var_queue_minfree) >= fsbuf.block_free
-	|| BLOCKS(var_message_limit) >= fsbuf.block_free / 1.5) {
+	|| BLOCKS(var_message_limit) >= fsbuf.block_free / smtpd_space_multf) {
 	(void) smtpd_check_reject(state, MAIL_ERROR_RESOURCE,
 				  452, "4.3.1",
 				  "Insufficient system storage");
 	msg_warn("not enough free space in mail queue: %lu bytes < "
-		 "1.5*message size limit",
-		 (unsigned long) fsbuf.block_free * fsbuf.block_size);
+		 "%g*message size limit",
+		 (unsigned long) fsbuf.block_free * fsbuf.block_size,
+		smtpd_space_multf);
 	return (STR(error_text));
     }
     return (0);

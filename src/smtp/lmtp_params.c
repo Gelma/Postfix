@@ -51,6 +51,7 @@
 	VAR_LMTP_MIME_CHKS, DEF_LMTP_MIME_CHKS, &var_smtp_mime_chks, 0, 0,
 	VAR_LMTP_NEST_CHKS, DEF_LMTP_NEST_CHKS, &var_smtp_nest_chks, 0, 0,
 	VAR_LMTP_BODY_CHKS, DEF_LMTP_BODY_CHKS, &var_smtp_body_chks, 0, 0,
+	VAR_LMTP_RESP_FILTER, DEF_LMTP_RESP_FILTER, &var_smtp_resp_filter, 0, 0,
 	0,
     };
     static const CONFIG_TIME_TABLE lmtp_time_table[] = {
@@ -99,6 +100,7 @@
 #ifdef USE_TLS
 	VAR_LMTP_TLS_ENFORCE_PN, DEF_LMTP_TLS_ENFORCE_PN, &var_smtp_tls_enforce_peername,
 	VAR_LMTP_TLS_NOTEOFFER, DEF_LMTP_TLS_NOTEOFFER, &var_smtp_tls_note_starttls_offer,
+	VAR_LMTP_TLS_BLK_EARLY_MAIL_REPLY, DEF_LMTP_TLS_BLK_EARLY_MAIL_REPLY, &var_smtp_tls_blk_early_mail_reply,
 #endif
 	VAR_LMTP_SENDER_AUTH, DEF_LMTP_SENDER_AUTH, &var_smtp_sender_auth,
 	VAR_LMTP_CNAME_OVERR, DEF_LMTP_CNAME_OVERR, &var_smtp_cname_overr,

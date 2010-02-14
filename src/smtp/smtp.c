@@ -163,6 +163,9 @@
 /* .IP "\fBsmtp_quote_rfc821_envelope (yes)\fR"
 /*	Quote addresses in SMTP MAIL FROM and RCPT TO commands as required
 /*	by RFC 2821.
+/* .IP "\fBsmtp_reply_filter (empty)\fR"
+/*	A mechanism to transform replies from remote SMTP servers one
+/*	line at a time.
 /* .IP "\fBsmtp_skip_5xx_greeting (yes)\fR"
 /*	Skip SMTP servers that greet with a 5XX status code (go away, do
 /*	not try again later).
@@ -400,6 +403,12 @@
 /*	File with the Postfix SMTP client ECDSA certificate in PEM format.
 /* .IP "\fBsmtp_tls_eckey_file ($smtp_tls_eccert_file)\fR"
 /*	File with the Postfix SMTP client ECDSA private key in PEM format.
+/* .PP
+/*	Available in Postfix version 2.7 and later:
+/* .IP "\fBsmtp_tls_block_early_mail_reply (no)\fR"
+/*	Try to detect a mail hijacking attack based on a TLS protocol
+/*	vulnerability (CVE-2009-3555), where an attacker prepends malicious
+/*	HELO, MAIL, RCPT, DATA commands to a Postfix SMTP client TLS session.
 /* OBSOLETE STARTTLS CONTROLS
 /* .ad
 /* .fi
@@ -572,7 +581,7 @@
 /* .IP "\fBlmtp_lhlo_name ($myhostname)\fR"
 /*	The hostname to send in the LMTP LHLO command.
 /* .IP "\fBsmtp_host_lookup (dns)\fR"
-/*	What mechanisms when the Postfix SMTP client uses to look up a host's IP
+/*	What mechanisms the Postfix SMTP client uses to look up a host's IP
 /*	address.
 /* .IP "\fBsmtp_randomize_addresses (yes)\fR"
 /*	Randomize the order of equal-preference MX host addresses.
@@ -769,6 +778,7 @@ char   *var_smtp_tls_proto;
 char   *var_smtp_tls_ciph;
 char   *var_smtp_tls_eccert_file;
 char   *var_smtp_tls_eckey_file;
+bool    var_smtp_tls_blk_early_mail_reply;
 
 #endif
 
@@ -785,6 +795,7 @@ char   *var_smtp_head_chks;
 char   *var_smtp_mime_chks;
 char   *var_smtp_nest_chks;
 char   *var_smtp_body_chks;
+char   *var_smtp_resp_filter;
 bool    var_lmtp_assume_final;
 
  /* Special handling of 535 AUTH errors. */
@@ -1053,6 +1064,14 @@ static void pre_init(char *unused_name, char **unused_argv)
     smtp_body_checks = hbc_body_checks_create(
 				     VAR_SMTP_BODY_CHKS, var_smtp_body_chks,
 					      smtp_hbc_callbacks);
+
+    /*
+     * Server reply filter.
+     */
+    if (*var_smtp_resp_filter)
+	smtp_chat_resp_filter =
+	    dict_open(var_smtp_resp_filter, O_RDONLY,
+		      DICT_FLAG_LOCK | DICT_FLAG_FOLD_FIX);
 }
 
 /* pre_accept - see if tables have changed */

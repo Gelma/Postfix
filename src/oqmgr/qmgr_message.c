@@ -366,10 +366,16 @@ static int qmgr_message_read(QMGR_MESSAGE *message)
 		msg_fatal("seek file %s: %m", VSTREAM_PATH(message->fp));
 	    curr_offset += message->data_size;
 	}
-	rec_type = rec_get(message->fp, buf, 0);
+	rec_type = rec_get_raw(message->fp, buf, 0, REC_FLAG_NONE);
 	start = vstring_str(buf);
 	if (msg_verbose > 1)
 	    msg_info("record %c %s", rec_type, start);
+	if (rec_type == REC_TYPE_PTR) {
+	    if ((rec_type = rec_goto(message->fp, start)) == REC_TYPE_ERROR)
+		break;
+	    /* Need to update curr_offset after pointer jump. */
+	    continue;
+	}
 	if (rec_type <= 0) {
 	    msg_warn("%s: message rejected: missing end record",
 		     message->queue_id);
@@ -992,12 +998,19 @@ static void qmgr_message_resolve(QMGR_MESSAGE *message)
 	 * me" bits turned on, but we handle them here anyway for the sake of
 	 * future proofing.
 	 */
+#define FILTER_WITHOUT_NEXTHOP(filter, next) \
+	(((next) = split_at((filter), ':')) == 0 || *(next) == 0)
+
+#define RCPT_WITHOUT_DOMAIN(rcpt, next) \
+	((next = strrchr(rcpt, '@')) == 0 || *++(next) == 0)
+
 	else if (message->filter_xport
 		 && (message->tflags & DEL_REQ_TRACE_ONLY_MASK) == 0) {
 	    reply.flags = 0;
 	    vstring_strcpy(reply.transport, message->filter_xport);
-	    if ((nexthop = split_at(STR(reply.transport), ':')) == 0
-		|| *nexthop == 0)
+	    if (FILTER_WITHOUT_NEXTHOP(STR(reply.transport), nexthop)
+		&& *(nexthop = var_def_filter_nexthop) == 0
+		&& RCPT_WITHOUT_DOMAIN(recipient->address, nexthop))
 		nexthop = var_myhostname;
 	    vstring_strcpy(reply.nexthop, nexthop);
 	    vstring_strcpy(reply.recipient, recipient->address);
