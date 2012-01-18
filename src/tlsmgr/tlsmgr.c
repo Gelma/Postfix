@@ -200,7 +200,6 @@
 #include <attr.h>
 #include <set_eugid.h>
 #include <htable.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

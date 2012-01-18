@@ -93,7 +93,6 @@
 #include <events.h>
 #include <mymalloc.h>
 #include <vstream.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

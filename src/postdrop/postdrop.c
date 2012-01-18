@@ -108,7 +108,6 @@
 #include <signal.h>
 #include <syslog.h>
 #include <errno.h>
-#include <warn_stat.h>
 
 /* Utility library. */
 

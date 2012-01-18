@@ -154,7 +154,6 @@
 #include <stringops.h>
 #include <myflock.h>
 #include <edit_file.h>
-#include <warn_stat.h>
 
  /*
   * Do we reuse and truncate an output file that persists after a crash, or

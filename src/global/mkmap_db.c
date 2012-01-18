@@ -47,7 +47,6 @@
 #include <dict.h>
 #include <dict_db.h>
 #include <myflock.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

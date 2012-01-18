@@ -91,7 +91,6 @@
 #include <safe_open.h>
 #include <iostuff.h>
 #include <mymalloc.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

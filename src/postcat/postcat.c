@@ -104,7 +104,6 @@
 #include <msg_vstream.h>
 #include <vstring_vstream.h>
 #include <stringops.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

@@ -44,7 +44,6 @@
 #include "msg.h"
 #include "set_eugid.h"
 #include "lstat_as.h"
-#include "warn_stat.h"
 
 /* lstat_as - lstat file as user */
 

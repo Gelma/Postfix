@@ -52,7 +52,6 @@
 #include <set_eugid.h>
 #include <get_hostname.h>
 #include <sane_fsops.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

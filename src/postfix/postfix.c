@@ -355,7 +355,6 @@
 #include <clean_env.h>
 #include <argv.h>
 #include <safe.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

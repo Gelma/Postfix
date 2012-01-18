@@ -72,7 +72,6 @@
 #include <dict_db.h>
 #include <dict_dbm.h>
 #include <dict_cdb.h>
-#include <warn_stat.h>
 
 /* Global directory. */
 

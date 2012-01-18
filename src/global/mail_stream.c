@@ -126,7 +126,6 @@
 #include <stringops.h>
 #include <argv.h>
 #include <sane_fsops.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

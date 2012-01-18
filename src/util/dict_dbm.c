@@ -60,7 +60,6 @@
 #include "stringops.h"
 #include "dict.h"
 #include "dict_dbm.h"
-#include "warn_stat.h"
 
 /* Application-specific. */
 

@@ -437,7 +437,6 @@
 #include <connect.h>
 #include <split_at.h>
 #include <name_code.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

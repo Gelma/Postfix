@@ -60,7 +60,6 @@
 #include "stringops.h"
 #include "dict.h"
 #include "dict_cdb.h"
-#include "warn_stat.h"
 
 #ifdef HAS_CDB
 

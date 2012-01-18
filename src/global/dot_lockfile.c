@@ -64,7 +64,6 @@
 #include <stringops.h>
 #include <mymalloc.h>
 #include <iostuff.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

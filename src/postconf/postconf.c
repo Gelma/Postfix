@@ -179,7 +179,7 @@
 /* .IP "\fBldap\fR (read-only)"
 /*	Perform lookups using the LDAP protocol. This is described
 /*	in \fBldap_table\fR(5).
-/* .IP "\fBmemcache\fR"
+/* .IP "\fBmemcache\fR (read-write)"
 /*	Perform lookups using the memcache protocol. This is described
 /*	in \fBmemcache_table\fR(5).
 /* .IP "\fBmysql\fR (read-only)"
@@ -191,7 +191,7 @@
 /* .IP "\fBpgsql\fR (read-only)"
 /*	Perform lookups using the PostgreSQL protocol. This is described
 /*	in \fBpgsql_table\fR(5).
-/* .IP "\fBproxy\fR"
+/* .IP "\fBproxy\fR (read-write)"
 /*	A lookup table that is implemented via the Postfix
 /*	\fBproxymap\fR(8) service. The table name syntax is
 /*	\fItype\fB:\fIname\fR.
@@ -340,7 +340,6 @@
 #include <vstream.h>
 #include <stringops.h>
 #include <name_mask.h>
-#include <warn_stat.h>
 
 /* Global library. */
 

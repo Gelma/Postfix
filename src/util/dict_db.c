@@ -109,7 +109,6 @@
 #include "myflock.h"
 #include "dict.h"
 #include "dict_db.h"
-#include "warn_stat.h"
 
 /* Application-specific. */
 
