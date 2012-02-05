@@ -267,14 +267,15 @@ static void cleanup_service(VSTREAM *src, char *unused_service, char **argv)
      * If the client requests us to do the bouncing in case of problems,
      * throw away the input only in case of real show-stopper errors, such as
      * unrecognizable data (which should never happen) or insufficient space
-     * for the queue file (which will happen occasionally). Otherwise, throw
-     * away the input after any error. See the CLEANUP_OUT_OK() definition.
+     * for the queue file (which will happen occasionally). Otherwise,
+     * discard input after any lethal error. See the CLEANUP_OUT_OK()
+     * definition.
      */
     if (cleanup_flags & CLEANUP_FLAG_BOUNCE) {
 	cleanup_err_mask =
 	    (CLEANUP_STAT_BAD | CLEANUP_STAT_WRITE | CLEANUP_STAT_SIZE);
     } else {
-	cleanup_err_mask = ~0;
+	cleanup_err_mask = CLEANUP_STAT_LETHAL;
     }
 
     /*
@@ -321,18 +322,27 @@ static void cleanup_service(VSTREAM *src, char *unused_service, char **argv)
      * file in the first place).
      * 
      * Do not log the arrival of a message that will be bounced by the client.
+     * 
+     * XXX CLEANUP_STAT_LETHAL masks errors that are not directly fatal (e.g.,
+     * header buffer overflow is normally allowed to happen), but that can
+     * indirectly become a problem (e.g., no recipients were extracted from
+     * message headers because we could not process all the message headers).
+     * However, cleanup_strerror() prioritizes errors so that it can report
+     * the cause (e.g., header buffer overflow), which is more useful.
+     * Amazing.
      */
 #define CAN_BOUNCE() \
 	((cleanup_errs & (CLEANUP_STAT_BAD | CLEANUP_STAT_WRITE)) == 0 \
 	    && cleanup_sender != 0 \
 	    && (cleanup_flags & CLEANUP_FLAG_BOUNCE) != 0)
 
-    if (cleanup_errs) {
+    if (cleanup_errs & CLEANUP_STAT_LETHAL) {
 	if (CAN_BOUNCE()) {
 	    if (bounce_append(BOUNCE_FLAG_CLEAN,
 			      cleanup_queue_id, cleanup_recip ?
 			      cleanup_recip : "", "cleanup", cleanup_time,
-			      "%s", cleanup_strerror(cleanup_errs)) == 0
+			      "Message rejected: %s",
+			      cleanup_strerror(cleanup_errs)) == 0
 		&& bounce_flush(BOUNCE_FLAG_CLEAN,
 				MAIL_QUEUE_INCOMING,
 				cleanup_queue_id, cleanup_sender) == 0) {
@@ -354,7 +364,8 @@ static void cleanup_service(VSTREAM *src, char *unused_service, char **argv)
      */
     junk = cleanup_path;
     cleanup_path = 0;				/* don't delete upon error */
-    mail_print(cleanup_src, "%d", cleanup_errs);/* we're committed now */
+    mail_print(cleanup_src, "%d",		/* we're committed now */
+	       cleanup_errs & CLEANUP_STAT_LETHAL);
     if (msg_verbose)
 	msg_info("cleanup_service: status %d", cleanup_errs);
     myfree(junk);

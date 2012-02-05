@@ -51,17 +51,31 @@ ARFL=rv
 
 SYSTEM=`(uname -s) 2>/dev/null`
 RELEASE=`(uname -r) 2>/dev/null`
+VERSION=`(uname -v) 2>/dev/null`
+
+case "$VERSION" in
+ dcosx*) SYSTEM=$VERSION;;
+esac
 
 case "$SYSTEM.$RELEASE" in
+   SCO_SV.3.2)	SYSTYPE=SCO5
+		# Use the native compiler by default
+		: ${CC="/usr/bin/cc -b elf"}
+		: ${DEBUG=}
+		SYSLIBS="-lsocket -ldbm"
+		RANLIB=echo
+		;;
   UnixWare.5*)	SYSTYPE=UW7
-		CC=cc
-		DEBUG=
+		# Use the native compiler by default
+		: ${CC=/usr/bin/cc}
+		: ${DEBUG=}
 		RANLIB=echo
 		SYSLIBS="-lresolv -lsocket -lnsl"
 		;;
   UNIX_SV.4.2*)	case "`uname -v`" in
 	      2.1*) SYSTYPE=UW21
-		    CC=/usr/bin/cc
+		    # Use the native compiler by default
+		    : ${CC=/usr/bin/cc}
 		    RANLIB=echo
 		    SYSLIBS="-lresolv -lsocket -lnsl -lc -L/usr/ucblib -lucb"
 		    ;;
@@ -195,6 +209,11 @@ ReliantUNIX-?.5.43) SYSTYPE=ReliantUnix543
 		: ${CC=cc}
 		AWK=gawk
 		;;
+    dcosx.1*)	SYSTYPE=DCOSX1
+		RANLIB=echo
+		SYSLIBS="-lresolv -lsocket -lnsl -lc -lrpcsvc -L/usr/ucblib -lucb"
+		;;
+
 	 ".")	if [ -d /NextApps ]; then
 		    SYSTYPE=`hostinfo | sed -n \
 			's/^.*NeXT Mach 3.*$/NEXTSTEP3/;/NEXTSTEP3/{p;q;}'`

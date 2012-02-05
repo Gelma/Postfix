@@ -87,6 +87,8 @@ distribution list</a>
 
 <li><a href="#majordomo-approve">Postfix breaks the majordomo "approve" command</a>
 
+<li><a href="#worm">Postfix accepts MAIL FROM/RCPT TO "|command"</a>
+
 </ul>
 
 <a name="relaying"><h3>Mail relaying</h3>
@@ -1157,7 +1159,7 @@ parameter:
 
 <pre>
     <b>/etc/postfix/main.cf</b>:
-	local_recipient_maps = $relocated_maps $alias_maps, unix:passwd.byname
+	local_recipient_maps = $alias_maps, unix:passwd.byname
 </pre>
 
 <p>
@@ -1446,6 +1448,49 @@ A less-preferred workaround is to not insert <b>Delivered-To:</b>
 when delivering to commands such as majordomo. See the FAQ entry
 titled "<a href="#delivered">Getting rid of the ugly Delivered-To:
 header</a>".
+
+<hr>
+
+<a name="worm"><h3>Postfix accepts MAIL FROM and RCPT TO "|command"</h3>
+
+With Postfix, | or / has special meaning only when it appears in
+aliases, .forward files or in :include: files. It has no special
+meaning in mail addresses.
+
+<p>
+
+If you must receive mail for systems with 10-year old vulnerabilities,
+it is prudent to set up a regexp filter that rejects potentially
+harmful MAIL FROM or RCPT TO commands.
+
+<p>
+
+<pre>
+    /etc/postfix/main.cf:
+	smtpd_sender_restrictions =
+	    regexp:/etc/postfix/envelope-regexp
+	    reject_unknown_sender_domain
+	smtpd_recipient_restrictions =
+	    regexp:/etc/postfix/envelope-regexp
+	    permit_mynetworks
+	    check_relay_domains
+
+    /etc/postfix/envelope-regexp:
+	/[/|]/	REJECT
+</pre>
+
+<p>
+
+However, rejecting all envelope addresses with / causes trouble
+with simple-minded X.400 to Internet address mappings that leave
+the X.400 address structure exposed.
+
+<p>
+
+See also the documentation on <a href="uce.html#header_checks">header
+checks</a> restrictions for message header contents. These restrictions
+can be used to protect against attacks with command/file destinations
+in, for example, Errors-To: or Return-Receipt_To:  message headers.
 
 <hr>
 

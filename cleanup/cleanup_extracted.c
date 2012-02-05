@@ -119,10 +119,13 @@ void    cleanup_extracted(void)
     /*
      * Optionally account for missing recipient envelope records.
      * 
+     * Don't extract recipients when some header was too long. We have
+     * incomplete information.
+     * 
      * XXX Code duplication from cleanup_envelope.c. This should be in one
      * place.
      */
-    if (cleanup_recip == 0) {
+    if (cleanup_recip == 0 && (cleanup_errs & CLEANUP_STAT_HOVFL) == 0) {
 	rcpt = (cleanup_resent[0] ? cleanup_resent_recip : cleanup_recipients);
 	if (*var_always_bcc && rcpt->argv[0]) {
 	    clean_addr = vstring_alloc(100);

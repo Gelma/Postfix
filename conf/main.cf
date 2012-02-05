@@ -128,7 +128,7 @@ mail_owner = postfix
 # FOR THIS TO WORK, DO NOT SPECIFY VIRTUAL DOMAINS IN MYDESTINATION.
 # MYDESTINATION MUST LIST NON-VIRTUAL DOMAINS ONLY.
 #
-#local_recipient_maps = $relocated_maps $alias_maps unix:passwd.byname
+#local_recipient_maps = $alias_maps unix:passwd.byname
 
 # ADDRESS REWRITING
 #

@@ -408,8 +408,10 @@ void    cleanup_message(void)
 	 * header record does not fit in a REC_TYPE_NORM type record.
 	 */
 	if (VSTRING_LEN(cleanup_header_buf) > 0) {
-	    if (VSTRING_LEN(cleanup_header_buf) < var_header_limit
-		&& type == REC_TYPE_NORM && ISSPACE(*start)) {
+	    if ((VSTRING_LEN(cleanup_header_buf) >= var_header_limit
+		 || type != REC_TYPE_NORM)) {
+		cleanup_errs |= CLEANUP_STAT_HOVFL;
+	    } else if (ISSPACE(*start)) {
 		VSTRING_ADDCH(cleanup_header_buf, '\n');
 		vstring_strcat(cleanup_header_buf, start);
 		continue;
@@ -431,8 +433,7 @@ void    cleanup_message(void)
 	 * immediately followed by a non-empty message body.
 	 */
 	if (in_header
-	    && (VSTRING_LEN(cleanup_header_buf) >= var_header_limit
-		|| type != REC_TYPE_NORM
+	    && ((cleanup_errs & CLEANUP_STAT_HOVFL)
 		|| !is_header(start))) {
 	    in_header = 0;
 	    cleanup_missing_headers();
