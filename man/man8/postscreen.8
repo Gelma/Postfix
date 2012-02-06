@@ -64,7 +64,7 @@ RFC 1870 (Message Size Declaration)
 RFC 1985 (ETRN command)
 RFC 2034 (SMTP Enhanced Status Codes)
 RFC 2821 (SMTP protocol)
-RFC 2920 (SMTP Pipelining)
+Not: RFC 2920 (SMTP Pipelining)
 RFC 3207 (STARTTLS command)
 RFC 3461 (SMTP DSN Extension)
 RFC 3463 (Enhanced Status Codes)
@@ -82,7 +82,8 @@ XFORWARD.
 Support for AUTH may be added in the future.
 In the mean time, if you need to make these services available
 on port 25, then do not enable the optional "after 220
-server greeting" tests.
+server greeting" tests, and do not use DNSBLs that reject
+traffic from dial-up and residential networks.
 
 The optional "after 220 server greeting" tests involve
 \fBpostscreen\fR(8)'s built-in SMTP protocol engine. When
