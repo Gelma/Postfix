@@ -305,7 +305,7 @@ esac
 
 install_root_prompt="the prefix for installed file names. Specify
 this ONLY if you are building ready-to-install packages for
-distribution to other machines."
+distribution to OTHER machines. See PACKAGE_README for instructions."
 
 tempdir_prompt="a directory for scratch files while installing
 Postfix.  You must have write permission in this directory."
@@ -363,7 +363,7 @@ HTML files. Specify \"no\" if you do not want to install these files."
 
 : ${install_root=/}
 : ${tempdir=`pwd`}
-: ${config_directory=`bin/postconf -h -d config_directory`}
+: ${config_directory=`bin/postconf -c conf -h -d config_directory`}
 
 # Find out the location of installed configuration files.
 
@@ -446,7 +446,7 @@ do
     case "$junk" in
     "") eval unset $name;;
     esac
-    eval : \${$name=\`bin/postconf -d -h $name\`} || exit 1
+    eval : \${$name=\`bin/postconf -c conf -d -h $name\`} || exit 1
 done
 
 # Override settings manually.

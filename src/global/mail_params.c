@@ -45,7 +45,7 @@
 /*	char	*var_double_bounce_sender;
 /*	int	var_line_limit;
 /*	char	*var_alias_db_map;
-/*	int	var_message_limit;
+/*	long	var_message_limit;
 /*	char	*var_mail_release;
 /*	char	*var_mail_version;
 /*	int	var_ipc_idle_limit;
@@ -117,6 +117,8 @@
 /*	char	*var_multi_group;
 /*	char	*var_multi_name;
 /*	bool	var_multi_enable;
+/*	bool	var_long_queue_ids;
+/*	bool	var_daemon_open_fatal;
 /*
 /*	void	mail_params_init()
 /*
@@ -171,6 +173,7 @@
 #include <safe.h>
 #include <safe_open.h>
 #include <mymalloc.h>
+#include <dict.h>
 #ifdef HAS_DB
 #include <dict_db.h>
 #endif
@@ -230,7 +233,7 @@ char   *var_mynetworks;
 char   *var_double_bounce_sender;
 int     var_line_limit;
 char   *var_alias_db_map;
-int     var_message_limit;
+long    var_message_limit;
 char   *var_mail_release;
 char   *var_mail_version;
 int     var_ipc_idle_limit;
@@ -302,6 +305,8 @@ char   *var_multi_wrapper;
 char   *var_multi_group;
 char   *var_multi_name;
 bool    var_multi_enable;
+bool    var_long_queue_ids;
+bool    var_daemon_open_fatal;
 
 const char null_format_string[1] = "";
 
@@ -508,11 +513,16 @@ void    mail_params_init()
 {
     static const CONFIG_STR_TABLE first_str_defaults[] = {
 	VAR_SYSLOG_FACILITY, DEF_SYSLOG_FACILITY, &var_syslog_facility, 1, 0,
-	VAR_INET_PROTOCOLS, DEF_INET_PROTOCOLS, &var_inet_protocols, 1, 0,
+	VAR_INET_PROTOCOLS, DEF_INET_PROTOCOLS, &var_inet_protocols, 0, 0,
 	VAR_MULTI_CONF_DIRS, DEF_MULTI_CONF_DIRS, &var_multi_conf_dirs, 0, 0,
 	/* multi_instance_wrapper may have dependencies but not dependents. */
 	VAR_MULTI_GROUP, DEF_MULTI_GROUP, &var_multi_group, 0, 0,
 	VAR_MULTI_NAME, DEF_MULTI_NAME, &var_multi_name, 0, 0,
+	0,
+    };
+    static const CONFIG_BOOL_TABLE first_bool_defaults[] = {
+	/* read and process the following before opening tables. */
+	VAR_DAEMON_OPEN_FATAL, DEF_DAEMON_OPEN_FATAL, &var_daemon_open_fatal,
 	0,
     };
     static const CONFIG_STR_FN_TABLE function_str_defaults[] = {
@@ -533,7 +543,7 @@ void    mail_params_init()
 	VAR_COMMAND_DIR, DEF_COMMAND_DIR, &var_command_dir, 1, 0,
 	VAR_QUEUE_DIR, DEF_QUEUE_DIR, &var_queue_dir, 1, 0,
 	VAR_PID_DIR, DEF_PID_DIR, &var_pid_dir, 1, 0,
-	VAR_INET_INTERFACES, DEF_INET_INTERFACES, &var_inet_interfaces, 1, 0,
+	VAR_INET_INTERFACES, DEF_INET_INTERFACES, &var_inet_interfaces, 0, 0,
 	VAR_PROXY_INTERFACES, DEF_PROXY_INTERFACES, &var_proxy_interfaces, 0, 0,
 	VAR_DOUBLE_BOUNCE, DEF_DOUBLE_BOUNCE, &var_double_bounce_sender, 1, 0,
 	VAR_DEFAULT_PRIVS, DEF_DEFAULT_PRIVS, &var_default_privs, 1, 0,
@@ -579,7 +589,6 @@ void    mail_params_init()
 	VAR_MAX_USE, DEF_MAX_USE, &var_use_limit, 1, 0,
 	VAR_DONT_REMOVE, DEF_DONT_REMOVE, &var_dont_remove, 0, 0,
 	VAR_LINE_LIMIT, DEF_LINE_LIMIT, &var_line_limit, 512, 0,
-	VAR_MESSAGE_LIMIT, DEF_MESSAGE_LIMIT, &var_message_limit, 0, 0,
 	VAR_HASH_QUEUE_DEPTH, DEF_HASH_QUEUE_DEPTH, &var_hash_queue_depth, 1, 0,
 	VAR_FORK_TRIES, DEF_FORK_TRIES, &var_fork_tries, 1, 0,
 	VAR_FLOCK_TRIES, DEF_FLOCK_TRIES, &var_flock_tries, 1, 0,
@@ -593,6 +602,10 @@ void    mail_params_init()
 	VAR_MIME_BOUND_LEN, DEF_MIME_BOUND_LEN, &var_mime_bound_len, 1, 0,
 	VAR_DELAY_MAX_RES, DEF_DELAY_MAX_RES, &var_delay_max_res, MIN_DELAY_MAX_RES, MAX_DELAY_MAX_RES,
 	VAR_INET_WINDOW, DEF_INET_WINDOW, &var_inet_windowsize, 0, 0,
+	0,
+    };
+    static const CONFIG_LONG_TABLE long_defaults[] = {
+	VAR_MESSAGE_LIMIT, DEF_MESSAGE_LIMIT, &var_message_limit, 0, 0,
 	0,
     };
     static const CONFIG_TIME_TABLE time_defaults[] = {
@@ -624,6 +637,7 @@ void    mail_params_init()
 	VAR_HELPFUL_WARNINGS, DEF_HELPFUL_WARNINGS, &var_helpful_warnings,
 	VAR_CYRUS_SASL_AUTHZID, DEF_CYRUS_SASL_AUTHZID, &var_cyrus_sasl_authzid,
 	VAR_MULTI_ENABLE, DEF_MULTI_ENABLE, &var_multi_enable,
+	VAR_LONG_QUEUE_IDS, DEF_LONG_QUEUE_IDS, &var_long_queue_ids,
 	0,
     };
     const char *cp;
@@ -639,6 +653,14 @@ void    mail_params_init()
 	msg_fatal("file %s/%s: parameter %s: unrecognized value: %s",
 		  var_config_dir, MAIN_CONF_FILE,
 		  VAR_SYSLOG_FACILITY, var_syslog_facility);
+
+    /*
+     * Should daemons terminate after table open error, or should they
+     * continue execution with reduced functionality?
+     */
+    get_mail_conf_bool_table(first_bool_defaults);
+    if (var_daemon_open_fatal)
+	dict_allow_surrogate = 0;
 
     /*
      * What protocols should we attempt to support? The result is stored in
@@ -681,6 +703,7 @@ void    mail_params_init()
     }
 #endif
     get_mail_conf_int_table(other_int_defaults);
+    get_mail_conf_long_table(long_defaults);
     get_mail_conf_bool_table(bool_defaults);
     get_mail_conf_time_table(time_defaults);
     check_default_privs();
