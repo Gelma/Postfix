@@ -92,14 +92,15 @@ typedef struct {
     int     cipher_algbits;
     /* Private. */
     SSL    *con;
-    BIO    *internal_bio;		/* postfix/TLS side of pair */
-    BIO    *network_bio;		/* network side of pair */
     char   *cache_type;			/* tlsmgr(8) cache type if enabled */
     char   *serverid;			/* unique server identifier */
     char   *namaddr;			/* nam[addr] for logging */
     int     log_level;			/* TLS library logging level */
     int     session_reused;		/* this session was reused */
     int     am_server;			/* Are we an SSL server or client? */
+    /* Built-in vs external SSL_accept/read/write/shutdown support. */
+    char   *fpt_dgst;			/* Certificate fingerprint digest */
+    VSTREAM *stream;			/* Blocking-mode SMTP session */
 } TLS_SESS_STATE;
 
  /*
@@ -279,6 +280,7 @@ typedef struct {
 
 extern TLS_APPL_STATE *tls_server_init(const TLS_SERVER_INIT_PROPS *);
 extern TLS_SESS_STATE *tls_server_start(const TLS_SERVER_START_PROPS *props);
+extern TLS_SESS_STATE *tls_server_post_accept(TLS_SESS_STATE *);
 
 #define tls_server_stop(ctx, stream, timeout, failure, TLScontext) \
 	tls_session_stop(ctx, (stream), (timeout), (failure), (TLScontext))

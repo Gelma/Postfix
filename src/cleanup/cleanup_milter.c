@@ -370,8 +370,7 @@ static char *cleanup_milter_hbc_extend(void *context, const char *command,
 	}
 	return ((char *) buf);
     }
-    msg_warn("unknown command in %s map: %s", map_class, command);
-    return ((char *) buf);
+    return ((char *) HBC_CHECKS_STAT_UNKNOWN);
 }
 
 /* cleanup_milter_header_checks - inspect Milter-generated header */
@@ -1450,7 +1449,7 @@ static const char *cleanup_add_rcpt(void *context, const char *ext_rcpt)
 	}
     }
     tok822_free_tree(tree);
-    cleanup_addr_bcc(state, STR(int_rcpt_buf));
+    cleanup_addr_bcc_dsn(state, STR(int_rcpt_buf), NO_DSN_ORCPT, DEF_DSN_NOTIFY);
     vstring_free(int_rcpt_buf);
     if (addr_count == 0) {
 	msg_warn("%s: ignoring attempt from Milter to add null recipient",

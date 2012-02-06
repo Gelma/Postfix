@@ -40,8 +40,8 @@
 /*	int	max;
 /* DESCRIPTION
 /*	This module implements configuration parameter support
-/*	for integer values. The default value can be a macro
-/*	expression ($name, ${name?value} and ${name:value}).
+/*	for integer values. Unlike mail_conf_int, the default
+/*	is a string, which can be subjected to macro expansion.
 /*
 /*	get_mail_conf_nint() looks up the named entry in the global
 /*	configuration dictionary. The default value is returned
@@ -84,7 +84,8 @@
 
 #include <sys_defs.h>
 #include <stdlib.h>
-#include <stdio.h>			/* sscanf() */
+#include <stdio.h>			/* BUFSIZ */
+#include <errno.h>
 
 /* Utility library. */
 
@@ -102,10 +103,13 @@
 static int convert_mail_conf_nint(const char *name, int *intval)
 {
     const char *strval;
-    char    junk;
+    char   *end;
+    long    longval;
 
     if ((strval = mail_conf_lookup_eval(name)) != 0) {
-	if (sscanf(strval, "%d%c", intval, &junk) != 1)
+	errno = 0;
+	*intval = longval = strtol(strval, &end, 10);
+	if (*strval == 0 || *end != 0 || errno == ERANGE || longval != *intval)
 	    msg_fatal("bad numerical configuration: %s = %s", name, strval);
 	return (1);
     }

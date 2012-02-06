@@ -209,7 +209,7 @@ static int test_reply(SMFICTX *ctx, int code)
 	printf("test_reply %s\n", reply_code);
 	return (reply_code[0] == '4' ? SMFIS_TEMPFAIL : SMFIS_REJECT);
     } else {
-	printf("test_reply %d\n", code);
+	printf("test_reply %d\n\n", code);
 	return (code);
     }
 }
@@ -397,10 +397,22 @@ static sfsistat test_unknown(SMFICTX *ctx, const char *what)
 
 #endif
 
+#if SMFI_VERSION > 5
+
 static sfsistat test_negotiate(SMFICTX *, unsigned long, unsigned long,
 			               unsigned long, unsigned long,
 			               unsigned long *, unsigned long *,
 			               unsigned long *, unsigned long *);
+
+#endif
+
+#ifndef SMFIF_CHGFROM
+#define SMFIF_CHGFROM 0
+#endif
+#ifndef SMFIP_HDR_LEADSPC
+#define SMFIP_HDR_LEADSPC 0
+#define misc_mask 0
+#endif
 
 static struct smfiDesc smfilter =
 {

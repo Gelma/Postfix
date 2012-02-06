@@ -325,6 +325,7 @@ static int smtpd_proxy_connect(SMTPD_STATE *state)
 	XFORWARD_PORT, SMTPD_PROXY_XFORWARD_PORT,
 	XFORWARD_PROTO, SMTPD_PROXY_XFORWARD_PROTO,
 	XFORWARD_HELO, SMTPD_PROXY_XFORWARD_HELO,
+	XFORWARD_IDENT, SMTPD_PROXY_XFORWARD_IDENT,
 	XFORWARD_DOMAIN, SMTPD_PROXY_XFORWARD_DOMAIN,
 	0, 0,
     };
@@ -349,12 +350,17 @@ static int smtpd_proxy_connect(SMTPD_STATE *state)
     /*
      * Connect to proxy.
      */
-    if ((fd = connect_fn(endpoint, BLOCKING, proxy->timeout)) < 0)
+    if ((fd = connect_fn(endpoint, BLOCKING, proxy->timeout)) < 0) {
+	msg_warn("connect to proxy filter %s: %m", proxy->service_name);
 	return (smtpd_proxy_rdwr_error(state, 0));
+    }
     proxy->service_stream = vstream_fdopen(fd, O_RDWR);
     /* Needed by our DATA-phase record emulation routines. */
     vstream_control(proxy->service_stream, VSTREAM_CTL_CONTEXT,
 		    (char *) state, VSTREAM_CTL_END);
+    /* Avoid poor performance when TCP MSS > VSTREAM_BUFSIZE. */
+    if (connect_fn == inet_connect)
+	vstream_tweak_tcp(proxy->service_stream);
     smtp_timeout_setup(proxy->service_stream, proxy->timeout);
 
     /*
@@ -426,6 +432,10 @@ static int smtpd_proxy_connect(SMTPD_STATE *state)
 		 && smtpd_proxy_xforward_send(state, buf, XFORWARD_HELO,
 				  IS_AVAIL_CLIENT_HELO(FORWARD_HELO(state)),
 					      FORWARD_HELO(state)))
+	     || ((server_xforward_features & SMTPD_PROXY_XFORWARD_IDENT)
+		 && smtpd_proxy_xforward_send(state, buf, XFORWARD_IDENT,
+				  IS_AVAIL_CLIENT_IDENT(FORWARD_IDENT(state)),
+					      FORWARD_IDENT(state)))
 	     || ((server_xforward_features & SMTPD_PROXY_XFORWARD_PROTO)
 		 && smtpd_proxy_xforward_send(state, buf, XFORWARD_PROTO,
 				IS_AVAIL_CLIENT_PROTO(FORWARD_PROTO(state)),
