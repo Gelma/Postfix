@@ -10201,10 +10201,10 @@ parameter, but the setting "no" does not. </p>
 <p>
 If non-empty, a Postfix SMTP client filter for the remote SMTP
 server's list of offered SASL mechanisms.  Different client and
-server implementations may support different mechanism lists. By
+server implementations may support different mechanism lists; by
 default, the Postfix SMTP client will use the intersection of the
-two. <a href="postconf.5.html#smtp_sasl_mechanism_filter">smtp_sasl_mechanism_filter</a> further restricts what server
-mechanisms the client will take into consideration.  </p>
+two. <a href="postconf.5.html#smtp_sasl_mechanism_filter">smtp_sasl_mechanism_filter</a> specifies an optional third mechanism
+list to intersect with. </p>
 
 <p> Specify mechanism names, "/file/name" patterns or "<a href="DATABASE_README.html">type:table</a>"
 lookup tables. The right-hand side result from "<a href="DATABASE_README.html">type:table</a>" lookups
@@ -10490,6 +10490,10 @@ file may also be used to augment the client certificate trust chain,
 but it is best to include all the required certificates directly in
 $<a href="postconf.5.html#smtp_tls_cert_file">smtp_tls_cert_file</a>. </p>
 
+<p> Specify "<a href="postconf.5.html#smtp_tls_CAfile">smtp_tls_CAfile</a> = /path/to/system_CA_file" to use
+ONLY the system-supplied default certificate authority certificates.
+</p>
+
 <p> Specify "<a href="postconf.5.html#tls_append_default_CA">tls_append_default_CA</a> = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
 certificates. </p>
@@ -10516,6 +10520,10 @@ with, for example, "$OPENSSL_HOME/bin/c_rehash /etc/postfix/certs".
 
 <p> To use this option in chroot mode, this directory (or a copy)
 must be inside the chroot jail. </p>
+
+<p> Specify "<a href="postconf.5.html#smtp_tls_CApath">smtp_tls_CApath</a> = /path/to/system_CA_directory" to
+use ONLY the system-supplied default certificate authority certificates.
+</p>
 
 <p> Specify "<a href="postconf.5.html#tls_append_default_CA">tls_append_default_CA</a> = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
@@ -12413,11 +12421,14 @@ This feature is available in Postfix 2.3. </dd>
 
 <dt><b><a name="warn_if_reject">warn_if_reject</a></b></dt>
 
-<dd>Change the meaning of the next restriction, so that it logs
-a warning instead of rejecting a request (look for logfile records
-that contain "reject_warning"). This is useful for testing new
-restrictions in a "live" environment without risking unnecessary
-loss of mail. </dd>
+<dd> A safety net for testing. When "<a href="postconf.5.html#warn_if_reject">warn_if_reject</a>" is placed
+before a reject-type restriction, access table query, or
+<a href="postconf.5.html#check_policy_service">check_policy_service</a> query, this logs a "reject_warning" message
+instead of rejecting a request (when a reject-type restriction fails
+due to a temporary error, this logs a "reject_warning" message for
+any implicit "<a href="postconf.5.html#defer_if_permit">defer_if_permit</a>" actions that would normally prevent
+mail from being accepted by some later access restriction). This
+feature has no effect on <a href="postconf.5.html#defer_if_reject">defer_if_reject</a> restrictions.  </dd>
 
 </dl>
 
@@ -13028,6 +13039,41 @@ always allows up to 100 junk commands by default.  </p>
 
 </DD>
 
+<DT><b><a name="smtpd_log_access_permit_actions">smtpd_log_access_permit_actions</a>
+(default: empty)</b></DT><DD>
+
+<p> Enable logging of the named "permit" actions in SMTP server
+access lists.  This does not affect conditional actions such as
+"<a href="postconf.5.html#defer_if_permit">defer_if_permit</a>". </p>
+
+<p> Specify a list of "permit" action names, "/file/name" or
+"<a href="DATABASE_README.html">type:table</a>" patterns, separated by commas and/or whitespace. The
+list is matched left to right, and the search stops on the first
+match. A "/file/name" pattern is replaced by its contents; a
+"<a href="DATABASE_README.html">type:table</a>" lookup table is matched when a name matches a lookup
+key (the lookup result is ignored).  Continue long lines by starting
+the next line with whitespace. Specify "!pattern" to exclude a name
+from the list. </p>
+
+<p> Examples: </p>
+
+<pre>
+/etc/postfix/<a href="postconf.5.html">main.cf</a>:
+    # Log all "permit" actions.
+    <a href="postconf.5.html#smtpd_log_access_permit_actions">smtpd_log_access_permit_actions</a> = <a href="DATABASE_README.html#types">static</a>:all
+</pre>
+
+<pre>
+/etc/postfix/<a href="postconf.5.html">main.cf</a>:
+    # Log "<a href="postconf.5.html#permit_dnswl_client">permit_dnswl_client</a>" only.
+    <a href="postconf.5.html#smtpd_log_access_permit_actions">smtpd_log_access_permit_actions</a> = <a href="postconf.5.html#permit_dnswl_client">permit_dnswl_client</a>
+</pre>
+
+<p> This feature is available in Postfix 2.10 and later.  </p>
+
+
+</DD>
+
 <DT><b><a name="smtpd_milters">smtpd_milters</a>
 (default: empty)</b></DT><DD>
 
@@ -13490,11 +13536,15 @@ Example:
 server
 4XX or 5XX response. </p>
 
-<p> Example: </p>
+<p> The following example uses "\c" at the start of the template
+(supported in Postfix 2.10 and later) to suppress the line break
+between the reply text and the footer text. With earlier Postfix
+versions, the footer text always begins on a new line, and the "\c"
+is output literally. </p>
 
 <pre>
 /etc/postfix/<a href="postconf.5.html">main.cf</a>:
-    <a href="postconf.5.html#smtpd_reject_footer">smtpd_reject_footer</a> = For assistance, call 800-555-0101.
+    <a href="postconf.5.html#smtpd_reject_footer">smtpd_reject_footer</a> = \c. For assistance, call 800-555-0101.
      Please provide the following information in your problem report:
      time ($localtime), client ($client_address) and server
      ($server_name).
@@ -13503,8 +13553,8 @@ server
 <p> Server response: </p>
 
 <pre>
-    550-5.5.1 &lt;user@example&gt; Recipient address rejected: User unknown
-    550 5.5.1 For assistance, call 800-555-0101. Please provide the
+    550-5.5.1 &lt;user@example&gt; Recipient address rejected: User
+    unknown. For assistance, call 800-555-0101. Please provide the
     following information in your problem report: time (Jan 4 15:42:00),
     client (192.168.1.248) and server (mail1.example.com).
 </pre>
@@ -13557,6 +13607,11 @@ for a line break in the footer text. Postfix automatically inserts
 after each line break the three-digit SMTP reply code (and optional
 enhanced status code) from the original Postfix reject message.
 </p>
+
+<p> To work around mail software that mis-handles multi-line replies,
+specify the two-character sequence \c at the start of the template.
+This suppresses the line break between the reply text and the footer
+text (Postfix 2.10 and later).  </p>
 
 <p> This feature is available in Postfix 2.8 and later. </p>
 
@@ -14196,6 +14251,10 @@ file may also be used to augment the server certificate trust chain,
 but it is best to include all the required certificates directly in the
 server certificate file. </p>
 
+<p> Specify "<a href="postconf.5.html#smtpd_tls_CAfile">smtpd_tls_CAfile</a> = /path/to/system_CA_file" to use ONLY
+the system-supplied default certificate authority certificates.
+</p>
+
 <p> Specify "<a href="postconf.5.html#tls_append_default_CA">tls_append_default_CA</a> = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
 certificates. </p>
@@ -14230,6 +14289,10 @@ certificates. Do not forget to create the necessary "hash" links with,
 for example, "$OPENSSL_HOME/bin/c_rehash /etc/postfix/certs". To use
 <a href="postconf.5.html#smtpd_tls_CApath">smtpd_tls_CApath</a> in chroot mode, this directory (or a copy) must be
 inside the chroot jail. </p>
+
+<p> Specify "<a href="postconf.5.html#smtpd_tls_CApath">smtpd_tls_CApath</a> = /path/to/system_CA_directory" to
+use ONLY the system-supplied default certificate authority certificates.
+</p>
 
 <p> Specify "<a href="postconf.5.html#tls_append_default_CA">tls_append_default_CA</a> = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party

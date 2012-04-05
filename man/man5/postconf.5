@@ -5989,10 +5989,10 @@ This feature is available in Postfix 2.5 and later.
 .SH smtp_sasl_mechanism_filter (default: empty)
 If non-empty, a Postfix SMTP client filter for the remote SMTP
 server's list of offered SASL mechanisms.  Different client and
-server implementations may support different mechanism lists. By
+server implementations may support different mechanism lists; by
 default, the Postfix SMTP client will use the intersection of the
-two. smtp_sasl_mechanism_filter further restricts what server
-mechanisms the client will take into consideration.
+two. smtp_sasl_mechanism_filter specifies an optional third mechanism
+list to intersect with.
 .PP
 Specify mechanism names, "/file/name" patterns or "type:table"
 lookup tables. The right-hand side result from "type:table" lookups
@@ -6160,6 +6160,9 @@ file may also be used to augment the client certificate trust chain,
 but it is best to include all the required certificates directly in
 $smtp_tls_cert_file.
 .PP
+Specify "smtp_tls_CAfile = /path/to/system_CA_file" to use
+ONLY the system-supplied default certificate authority certificates.
+.PP
 Specify "tls_append_default_CA = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
 certificates.
@@ -6183,6 +6186,9 @@ with, for example, "$OPENSSL_HOME/bin/c_rehash /etc/postfix/certs".
 .PP
 To use this option in chroot mode, this directory (or a copy)
 must be inside the chroot jail.
+.PP
+Specify "smtp_tls_CApath = /path/to/system_CA_directory" to
+use ONLY the system-supplied default certificate authority certificates.
 .PP
 Specify "tls_append_default_CA = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
@@ -7771,11 +7777,14 @@ mail when used as:
 .ft R
 This feature is available in Postfix 2.3.
 .IP "\fBwarn_if_reject\fR"
-Change the meaning of the next restriction, so that it logs
-a warning instead of rejecting a request (look for logfile records
-that contain "reject_warning"). This is useful for testing new
-restrictions in a "live" environment without risking unnecessary
-loss of mail.
+A safety net for testing. When "warn_if_reject" is placed
+before a reject-type restriction, access table query, or
+check_policy_service query, this logs a "reject_warning" message
+instead of rejecting a request (when a reject-type restriction fails
+due to a temporary error, this logs a "reject_warning" message for
+any implicit "defer_if_permit" actions that would normally prevent
+mail from being accepted by some later access restriction). This
+feature has no effect on defer_if_reject restrictions.
 .PP
 Other restrictions that are valid in this context:
 .IP \(bu
@@ -8207,6 +8216,43 @@ smtpd_error_sleep_time and smtpd_soft_error_limit configuration
 parameters.  Normally the default limit is 100, but it changes under
 overload to just 1. With Postfix 2.5 and earlier, the SMTP server
 always allows up to 100 junk commands by default.
+.SH smtpd_log_access_permit_actions (default: empty)
+Enable logging of the named "permit" actions in SMTP server
+access lists.  This does not affect conditional actions such as
+"defer_if_permit".
+.PP
+Specify a list of "permit" action names, "/file/name" or
+"type:table" patterns, separated by commas and/or whitespace. The
+list is matched left to right, and the search stops on the first
+match. A "/file/name" pattern is replaced by its contents; a
+"type:table" lookup table is matched when a name matches a lookup
+key (the lookup result is ignored).  Continue long lines by starting
+the next line with whitespace. Specify "!pattern" to exclude a name
+from the list.
+.PP
+Examples:
+.PP
+.nf
+.na
+.ft C
+/etc/postfix/main.cf:
+    # Log all "permit" actions.
+    smtpd_log_access_permit_actions = static:all
+.fi
+.ad
+.ft R
+.PP
+.nf
+.na
+.ft C
+/etc/postfix/main.cf:
+    # Log "permit_dnswl_client" only.
+    smtpd_log_access_permit_actions = permit_dnswl_client
+.fi
+.ad
+.ft R
+.PP
+This feature is available in Postfix 2.10 and later.
 .SH smtpd_milters (default: empty)
 A list of Milter (mail filter) applications for new mail that
 arrives via the Postfix \fBsmtpd\fR(8) server. Specify space or comma as
@@ -8503,13 +8549,17 @@ Optional information that is appended after each Postfix SMTP
 server
 4XX or 5XX response.
 .PP
-Example:
+The following example uses "\ec" at the start of the template
+(supported in Postfix 2.10 and later) to suppress the line break
+between the reply text and the footer text. With earlier Postfix
+versions, the footer text always begins on a new line, and the "\ec"
+is output literally.
 .PP
 .nf
 .na
 .ft C
 /etc/postfix/main.cf:
-    smtpd_reject_footer = For assistance, call 800-555-0101.
+    smtpd_reject_footer = \ec. For assistance, call 800-555-0101.
      Please provide the following information in your problem report:
      time ($localtime), client ($client_address) and server
      ($server_name).
@@ -8522,8 +8572,8 @@ Server response:
 .nf
 .na
 .ft C
-    550-5.5.1 <user@example> Recipient address rejected: User unknown
-    550 5.5.1 For assistance, call 800-555-0101. Please provide the
+    550-5.5.1 <user@example> Recipient address rejected: User
+    unknown. For assistance, call 800-555-0101. Please provide the
     following information in your problem report: time (Jan 4 15:42:00),
     client (192.168.1.248) and server (mail1.example.com).
 .fi
@@ -8569,6 +8619,11 @@ This feature supports the two-character sequence \en as a request
 for a line break in the footer text. Postfix automatically inserts
 after each line break the three-digit SMTP reply code (and optional
 enhanced status code) from the original Postfix reject message.
+.PP
+To work around mail software that mis-handles multi-line replies,
+specify the two-character sequence \ec at the start of the template.
+This suppresses the line break between the reply text and the footer
+text (Postfix 2.10 and later).
 .PP
 This feature is available in Postfix 2.8 and later.
 .SH smtpd_reject_unlisted_recipient (default: yes)
@@ -8993,6 +9048,9 @@ file may also be used to augment the server certificate trust chain,
 but it is best to include all the required certificates directly in the
 server certificate file.
 .PP
+Specify "smtpd_tls_CAfile = /path/to/system_CA_file" to use ONLY
+the system-supplied default certificate authority certificates.
+.PP
 Specify "tls_append_default_CA = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party
 certificates.
@@ -9025,6 +9083,9 @@ certificates. Do not forget to create the necessary "hash" links with,
 for example, "$OPENSSL_HOME/bin/c_rehash /etc/postfix/certs". To use
 smtpd_tls_CApath in chroot mode, this directory (or a copy) must be
 inside the chroot jail.
+.PP
+Specify "smtpd_tls_CApath = /path/to/system_CA_directory" to
+use ONLY the system-supplied default certificate authority certificates.
 .PP
 Specify "tls_append_default_CA = no" to prevent Postfix from
 appending the system-supplied default CAs and trusting third-party

@@ -2232,6 +2232,7 @@ extern int var_local_rcpt_code;
 				" $" VAR_RELOCATED_MAPS \
 				" $" VAR_TRANSPORT_MAPS \
 				" $" VAR_MYNETWORKS \
+				" $" VAR_SMTPD_SND_AUTH_MAPS \
 				" $" VAR_SEND_BCC_MAPS \
 				" $" VAR_RCPT_BCC_MAPS \
 				" $" VAR_SMTP_GENERIC_MAPS \
@@ -3611,6 +3612,13 @@ extern bool var_smtpd_rec_deadline;
 #define VAR_LMTP_REC_DEADLINE	"lmtp_per_record_deadline"
 #define DEF_LMTP_REC_DEADLINE	0
 extern bool var_smtp_rec_deadline;
+
+ /*
+  * Permit logging.
+  */
+#define VAR_SMTPD_ACL_PERM_LOG	"smtpd_log_access_permit_actions"
+#define DEF_SMTPD_ACL_PERM_LOG	""
+extern char *var_smtpd_acl_perm_log;
 
  /*
   * Postfix sendmail command compatibility features.

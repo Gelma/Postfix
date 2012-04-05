@@ -17629,3 +17629,91 @@ Apologies for any names omitted.
 	to a missing guard statement after an smtpd_check_rewrite()
 	call was moved closer to the command processor loop. Fix
 	by Bartek Szady. File: smtpd/smtpd.c.
+
+20120220
+
+	Cleanup: documentation of how to use only system-supplied
+	certificates with *CAfile and *CApath. File: proto/postconf.proto.
+
+	Cleanup: documentation of smtp_sasl_mechanism_filter.  File:
+	proto/postconf.proto.
+
+20120222
+
+	Cleanup: when multiple DNSBLs block an SMTP client, the
+	postscreen "reject" message now gives credit to the DNSBL
+	with the largest weight, instead of the DNSBL that replies
+	first. File: postscreen/postscreeb_dnsbl.c.
+
+	Cleanup: memcache_table(5) manpage. File proto/memcache_table.
+
+20120225
+
+	Cleanup: eliminated the build-time Perl dependency.  File:
+	bounce/annotate.sh.
+
+	Cleanup: when -DNO_DB support was added, the makedefs script
+	was not updated to skip the Linux Berkeley DB tests.
+
+	FreeBSD9 is now a supported platform. Files: makedefs,
+	util/sys_defs.h.
+
+20120226
+
+	Cleanup: documentation in postfix-install.
+
+20120229
+
+	Feature: smtpd_log_access_permit_actions to enable logging
+	of specific permit-like actions in Postfix SMTP server
+	access lists.  Files: mantools/postlink, proto/postconf.proto,
+	global/mail_params.h, smtpd/smtpd.c, smtpd/smtpd_check.c.
+
+20120306
+
+	To improve the interaction with start-up scripts, "postfix
+	start" now waits for master daemon process initialization
+	to complete, and returns a non-zero exit status if daemon
+	initialization failed or if it did not complete in a
+	reasonable amount of time. This involves a new "-w" master
+	option.  Files: conf/postfix-script, master/master.c,
+	master/master.h.  master/master_monitor.c.
+
+20120307
+
+	postconf -X option to exclude parameters from main.cf
+	(require two-finger action, because this is irreversible).
+	Files: postconf/postconf.[hc], postconf/postconf_edit.c.
+
+20120317
+
+	Feature: Sendmail-style socketmap.  Files: util/dict_sockmap.[hc],
+	util/netstring.[hc], proto/DATABASE_README.html,
+	postconf/postconf.c.
+
+20120330
+
+	Workaround: specify "\c" at the start of an smtp_reject_footer
+	template to suppress the line break between the reply text
+	and the footer text. Files: global/smtp_reply_footer.c,
+	proto/postconf.proto.
+
+20120401
+
+	Bugfix (introduced Postfix 2.6): irrelevant memory leak
+	that was introduced with postconf -#. File:
+	postconf/postconf_edit.c.
+
+	Bitrot: shut up useless warnings about Cyrus SASL call-back
+	function pointer type mis-matches. Files: xsasl/xsasl_cyrus.h,
+	xsasl/xsasl_cyrus_server.c, xsasl/xsasl_client.c.
+
+20120404
+
+	Cleanup: added smtpd_sender_login_maps to the default
+	proxy_read_maps value. Files: global/mail_params.h,
+	proxymap/proxymap.c.
+
+	Cleanup: weed out stale TODO's from the WISHLIST, and moved
+	some CYA text from WISHLIST into the code. Files: WISHLIST,
+	smtpd/smtpd_proxy.c.
